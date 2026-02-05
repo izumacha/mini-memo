@@ -7,11 +7,11 @@
   <style>
     body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; margin: 18px; }
     h1 { font-size: 18px; margin: 0 0 10px; }
-    .app { display: grid; grid-template-columns: 260px 1fr; gap: 12px; }
+    .app { display: grid; grid-template-columns: 320px 1fr; gap: 12px; }
     @media (max-width: 720px){ .app{ grid-template-columns: 1fr; } }
 
     .panel { border: 1px solid #ddd; border-radius: 10px; padding: 10px; }
-    .row { display:flex; gap:8px; align-items:center; }
+    .row { display:flex; gap:8px; align-items:center; flex-wrap: wrap; }
     button { padding: 9px 10px; font-size: 14px; cursor:pointer; }
     .muted { color:#666; font-size: 12px; }
 
@@ -29,13 +29,16 @@
   </style>
 </head>
 <body>
-  <h1>ミニメモ（複数 / 自動保存）</h1>
+  <h1>ミニメモ（複数 / 自動保存 / エクスポート&インポート）</h1>
 
   <div class="app">
     <div class="panel">
       <div class="row">
         <button id="new">＋ 新規</button>
         <button id="del">削除</button>
+        <button id="export">エクスポート</button>
+        <button id="import">インポート</button>
+        <input id="importFile" type="file" accept="application/json" hidden />
         <div id="status" class="status"></div>
       </div>
       <div class="muted" style="margin-top:6px;">保存先：このブラウザ（localStorage）</div>
@@ -60,6 +63,9 @@
     const $status = document.getElementById("status");
     const $new = document.getElementById("new");
     const $del = document.getElementById("del");
+    const $export = document.getElementById("export");
+    const $import = document.getElementById("import");
+    const $importFile = document.getElementById("importFile");
 
     const uid = () => (crypto?.randomUUID?.() ?? String(Date.now()) + Math.random().toString(16).slice(2));
     const now = () => Date.now();
@@ -99,6 +105,9 @@
       return line.length ? line.slice(0, 24) : "（無題）";
     };
 
+    const escapeHtml = (s) =>
+      s.replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;");
+
     const select = (id) => {
       currentId = id;
       const m = memos.find(x => x.id === id);
@@ -122,9 +131,6 @@
         $list.appendChild(div);
       }
     };
-
-    const escapeHtml = (s) =>
-      s.replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;");
 
     $new.addEventListener("click", () => {
       const id = uid();
@@ -159,6 +165,59 @@
         save();
         render();
       }, 300);
+    });
+
+    const download = (filename, text) => {
+      const blob = new Blob([text], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    };
+
+    $export.addEventListener("click", () => {
+      const payload = {
+        version: 1,
+        exportedAt: Date.now(),
+        memos
+      };
+      const ts = new Date().toISOString().replaceAll(":", "-");
+      download(`mini-memos-${ts}.json`, JSON.stringify(payload, null, 2));
+    });
+
+    $import.addEventListener("click", () => $importFile.click());
+
+    $importFile.addEventListener("change", async () => {
+      const file = $importFile.files?.[0];
+      if (!file) return;
+
+      try {
+        const text = await file.text();
+        const obj = JSON.parse(text);
+
+        const imported = Array.isArray(obj?.memos) ? obj.memos : null;
+        if (!imported) throw new Error("memos が見つかりません");
+
+        // 最低限の整形（壊れたデータを避ける）
+        memos = imported
+          .filter(m => m && typeof m.id === "string" && typeof m.text === "string" && typeof m.updatedAt === "number")
+          .map(m => ({ id: m.id, text: m.text, updatedAt: m.updatedAt }));
+
+        if (memos.length === 0) throw new Error("有効なメモが0件です");
+
+        currentId = memos[0].id;
+        $editor.value = memos[0].text;
+        save();
+        render();
+        $status.textContent = "インポートしました";
+        setTimeout(() => ($status.textContent = ""), 1200);
+      } catch (e) {
+        alert("インポートに失敗しました: " + (e?.message ?? e));
+      } finally {
+        $importFile.value = ""; // 同じファイルを再選択できるように
+      }
     });
 
     // boot

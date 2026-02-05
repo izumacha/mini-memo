@@ -7,42 +7,56 @@
   <style>
     body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; margin: 18px; }
     h1 { font-size: 18px; margin: 0 0 10px; }
-    .app { display: grid; grid-template-columns: 320px 1fr; gap: 12px; }
+    .app { display: grid; grid-template-columns: 360px 1fr; gap: 12px; }
     @media (max-width: 720px){ .app{ grid-template-columns: 1fr; } }
 
-    .panel { border: 1px solid #ddd; border-radius: 10px; padding: 10px; }
+    .panel { border: 1px solid #ddd; border-radius: 10px; padding: 10px; background:#fff; }
     .row { display:flex; gap:8px; align-items:center; flex-wrap: wrap; }
-    button { padding: 9px 10px; font-size: 14px; cursor:pointer; }
+    button, input[type="search"] { padding: 9px 10px; font-size: 14px; }
+    button { cursor:pointer; }
     .muted { color:#666; font-size: 12px; }
+    .count { margin-left:auto; font-size: 12px; color:#666; }
 
-    .list { margin-top: 10px; display:flex; flex-direction:column; gap:6px; }
+    input[type="search"] { width: 100%; border-radius: 10px; border: 1px solid #ddd; }
+    .list { margin-top: 10px; display:flex; flex-direction:column; gap:6px; max-height: 60vh; overflow:auto; padding-right: 4px; }
     .item {
       border: 1px solid #eee; border-radius: 10px; padding: 8px;
       cursor: pointer; background:#fff;
     }
-    .item.active { border-color:#9cf; }
+    .item.active { border-color:#9cf; box-shadow: 0 0 0 2px rgba(153,204,255,.25) inset; }
     .title { font-size: 13px; font-weight: 600; margin-bottom: 2px; }
     .meta { font-size: 11px; color:#666; }
 
-    textarea { width:100%; min-height: 300px; padding: 12px; font-size: 16px; line-height: 1.5; border-radius: 10px; border: 1px solid #ddd; }
-    .status { margin-left:auto; font-size: 12px; color:#2b7; }
+    textarea { width:100%; min-height: 60vh; padding: 12px; font-size: 16px; line-height: 1.5; border-radius: 10px; border: 1px solid #ddd; }
+
+    .status { margin-left:auto; font-size: 12px; padding: 2px 6px; border-radius: 999px; }
+    .ok { color:#1a7f37; background: rgba(26,127,55,.08); }
+    .warn { color:#b45309; background: rgba(180,83,9,.10); }
+    .err { color:#b91c1c; background: rgba(185,28,28,.10); }
   </style>
 </head>
 <body>
-  <h1>ミニメモ（複数 / 自動保存 / JSON&Markdownエクスポート）</h1>
+  <h1>ミニメモ（複数 / 自動保存 / JSON&Markdown / 文字化け対策）</h1>
 
   <div class="app">
     <div class="panel">
-      <div class="row">
+      <div class="row" style="margin-bottom:8px;">
         <button id="new">＋ 新規</button>
         <button id="del">削除</button>
-        <button id="exportJson">JSON書き出し</button>
-        <button id="exportMd">MD書き出し</button>
+        <button id="exportJson">JSON</button>
+        <button id="exportMd">MD</button>
         <button id="import">インポート</button>
         <input id="importFile" type="file" accept="application/json" hidden />
-        <div id="status" class="status"></div>
+        <span id="status" class="status"></span>
       </div>
-      <div class="muted" style="margin-top:6px;">保存先：このブラウザ（localStorage）</div>
+
+      <input id="search" type="search" placeholder="検索（タイトル/本文）" />
+
+      <div class="row" style="margin-top:6px;">
+        <div class="muted">保存先：このブラウザ（localStorage）</div>
+        <div id="count" class="count"></div>
+      </div>
+
       <div id="list" class="list"></div>
     </div>
 
@@ -52,7 +66,7 @@
   </div>
 
   <script>
-    const KEY = "mini_memos_v1";
+    const KEY = "mini_memos_v2"; // 仕様変更したので v2 に（旧版と共存させたい場合）
 
     /** @type {{id:string, text:string, updatedAt:number}[]} */
     let memos = [];
@@ -62,6 +76,9 @@
     const $list = document.getElementById("list");
     const $editor = document.getElementById("editor");
     const $status = document.getElementById("status");
+    const $count = document.getElementById("count");
+    const $search = document.getElementById("search");
+
     const $new = document.getElementById("new");
     const $del = document.getElementById("del");
     const $exportJson = document.getElementById("exportJson");
@@ -72,6 +89,12 @@
     const uid = () => (crypto?.randomUUID?.() ?? String(Date.now()) + Math.random().toString(16).slice(2));
     const now = () => Date.now();
 
+    const setStatus = (text, kind = "ok", ms = 1000) => {
+      $status.textContent = text;
+      $status.className = `status ${kind}`;
+      if (ms > 0) setTimeout(() => { $status.textContent = ""; $status.className = "status"; }, ms);
+    };
+
     const formatTime = (ms) => {
       const d = new Date(ms);
       const pad = (n) => String(n).padStart(2, "0");
@@ -80,16 +103,35 @@
 
     const titleOf = (text) => {
       const line = (text ?? "").split("\n")[0].trim();
-      return line.length ? line.slice(0, 24) : "（無題）";
+      return line.length ? line.slice(0, 30) : "（無題）";
     };
 
     const escapeHtml = (s) =>
       s.replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;");
 
+    const normalizeImported = (maybe) => {
+      // 想定：[{id,text,updatedAt}, ...]
+      if (!Array.isArray(maybe)) return [];
+      return maybe
+        .filter(m => m && typeof m.id === "string" && typeof m.text === "string" && typeof m.updatedAt === "number")
+        .map(m => ({ id: m.id, text: m.text, updatedAt: m.updatedAt }));
+    };
+
+    const safeSave = () => {
+      try {
+        localStorage.setItem(KEY, JSON.stringify(memos));
+        setStatus("保存しました", "ok", 900);
+        return true;
+      } catch (e) {
+        setStatus("保存に失敗（容量不足？）", "err", 1800);
+        return false;
+      }
+    };
+
     const load = () => {
       try {
         const raw = localStorage.getItem(KEY);
-        memos = raw ? JSON.parse(raw) : [];
+        memos = raw ? normalizeImported(JSON.parse(raw)) : [];
       } catch {
         memos = [];
       }
@@ -97,16 +139,10 @@
         const id = uid();
         memos = [{ id, text: "", updatedAt: now() }];
         currentId = id;
-        save();
+        safeSave();
       } else {
-        currentId = memos[0].id;
+        currentId = memos.sort((a,b)=>b.updatedAt-a.updatedAt)[0].id;
       }
-    };
-
-    const save = () => {
-      localStorage.setItem(KEY, JSON.stringify(memos));
-      $status.textContent = "保存しました";
-      setTimeout(() => ($status.textContent = ""), 1000);
     };
 
     const select = (id) => {
@@ -115,14 +151,27 @@
       $editor.value = m ? m.text : "";
       render();
       $editor.focus();
+      // 選択中を見える位置へ（スマホで便利）
+      const el = document.querySelector(`.item[data-id="${CSS.escape(id)}"]`);
+      if (el) el.scrollIntoView({ block: "nearest" });
+    };
+
+    const filtered = () => {
+      const q = ($search.value ?? "").trim().toLowerCase();
+      const sorted = [...memos].sort((a,b) => b.updatedAt - a.updatedAt);
+      if (!q) return sorted;
+      return sorted.filter(m => (m.text ?? "").toLowerCase().includes(q) || titleOf(m.text).toLowerCase().includes(q));
     };
 
     const render = () => {
-      const sorted = [...memos].sort((a,b) => b.updatedAt - a.updatedAt);
+      const items = filtered();
+      $count.textContent = `表示: ${items.length} / 全: ${memos.length}`;
+
       $list.innerHTML = "";
-      for (const m of sorted) {
+      for (const m of items) {
         const div = document.createElement("div");
         div.className = "item" + (m.id === currentId ? " active" : "");
+        div.dataset.id = m.id;
         div.innerHTML = `
           <div class="title">${escapeHtml(titleOf(m.text))}</div>
           <div class="meta">${formatTime(m.updatedAt)}</div>
@@ -132,11 +181,27 @@
       }
     };
 
+    // ---- ダウンロード（文字化け対策：UTF-8 + charset + BOM） ----
+    // BOMを付けるとWindowsのメモ帳などでもほぼ確実に文字化けしない
+    const download = (filename, text, mime, addBom = true) => {
+      const bom = addBom ? "\uFEFF" : "";
+      const blob = new Blob([bom + text], { type: mime });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    };
+
+    const isoTs = () => new Date().toISOString().replaceAll(":", "-");
+
+    // ---- 操作 ----
     $new.addEventListener("click", () => {
       const id = uid();
       memos.push({ id, text: "", updatedAt: now() });
       select(id);
-      save();
+      safeSave();
     });
 
     $del.addEventListener("click", () => {
@@ -149,9 +214,10 @@
         const id = uid();
         memos.push({ id, text: "", updatedAt: now() });
       }
-      currentId = memos[0].id;
-      $editor.value = memos[0].text;
-      save();
+      currentId = memos.sort((a,b)=>b.updatedAt-a.updatedAt)[0].id;
+      const m = memos.find(x => x.id === currentId);
+      $editor.value = m ? m.text : "";
+      safeSave();
       render();
     });
 
@@ -162,28 +228,23 @@
         if (!m) return;
         m.text = $editor.value;
         m.updatedAt = now();
-        save();
+        safeSave();
         render();
       }, 300);
     });
 
-    // ---- ダウンロード（汎用） ----
-    const download = (filename, text, mime) => {
-      const blob = new Blob([text], { type: mime });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      a.click();
-      URL.revokeObjectURL(url);
-    };
-
-    const isoTs = () => new Date().toISOString().replaceAll(":", "-");
+    $search.addEventListener("input", () => render());
 
     // ---- JSONエクスポート ----
     $exportJson.addEventListener("click", () => {
-      const payload = { version: 1, exportedAt: Date.now(), memos };
-      download(`mini-memos-${isoTs()}.json`, JSON.stringify(payload, null, 2), "application/json");
+      const payload = { version: 2, exportedAt: Date.now(), memos };
+      download(
+        `mini-memos-${isoTs()}.json`,
+        JSON.stringify(payload, null, 2),
+        "application/json;charset=utf-8",
+        true
+      );
+      setStatus("JSONを書き出しました", "ok", 1200);
     });
 
     // ---- Markdownエクスポート ----
@@ -199,7 +260,6 @@
         const title = titleOf(m.text);
         const updated = formatTime(m.updatedAt);
         const body = (m.text ?? "").trim();
-
         out += `## ${title}\n`;
         out += `UpdatedAt: ${updated}\n\n`;
         out += `${body}\n\n`;
@@ -210,7 +270,13 @@
 
     $exportMd.addEventListener("click", () => {
       const md = toMarkdown(memos);
-      download(`mini-memos-${isoTs()}.md`, md, "text/markdown");
+      download(
+        `mini-memos-${isoTs()}.md`,
+        md,
+        "text/markdown;charset=utf-8",
+        true
+      );
+      setStatus("MDを書き出しました", "ok", 1200);
     });
 
     // ---- JSONインポート（復元） ----
@@ -224,29 +290,24 @@
         const text = await file.text();
         const obj = JSON.parse(text);
 
-        const imported = Array.isArray(obj?.memos) ? obj.memos : null;
-        if (!imported) throw new Error("memos が見つかりません");
+        const imported = normalizeImported(obj?.memos);
+        if (imported.length === 0) throw new Error("有効なメモが0件です");
 
-        const validMemos = imported
-          .filter(m => m && typeof m.id === "string" && typeof m.text === "string" && typeof m.updatedAt === "number")
-          .map(m => ({ id: m.id, text: m.text, updatedAt: m.updatedAt }));
-
-        if (validMemos.length === 0) throw new Error("有効なメモが0件です");
-
-        // 確認ダイアログを表示
-        const msg = `${validMemos.length}件のメモをインポートします。\n現在のメモ（${memos.length}件）は上書きされます。\n\nよろしいですか？`;
+        const msg = `${imported.length}件のメモをインポートします。\n現在のメモ（${memos.length}件）は上書きされます。\n\nよろしいですか？`;
         if (!confirm(msg)) return;
 
-        memos = validMemos;
+        memos = imported;
+        currentId = memos.sort((a,b)=>b.updatedAt-a.updatedAt)[0].id;
 
-        currentId = memos[0].id;
-        $editor.value = memos[0].text;
-        save();
+        const m = memos.find(x => x.id === currentId);
+        $editor.value = m ? m.text : "";
+
+        safeSave();
         render();
-        $status.textContent = "インポートしました";
-        setTimeout(() => ($status.textContent = ""), 1200);
+        setStatus("インポートしました", "ok", 1400);
       } catch (e) {
         alert("インポートに失敗しました: " + (e?.message ?? e));
+        setStatus("インポート失敗", "err", 1600);
       } finally {
         $importFile.value = "";
       }

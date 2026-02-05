@@ -29,14 +29,15 @@
   </style>
 </head>
 <body>
-  <h1>ミニメモ（複数 / 自動保存 / エクスポート&インポート）</h1>
+  <h1>ミニメモ（複数 / 自動保存 / JSON&Markdownエクスポート）</h1>
 
   <div class="app">
     <div class="panel">
       <div class="row">
         <button id="new">＋ 新規</button>
         <button id="del">削除</button>
-        <button id="export">エクスポート</button>
+        <button id="exportJson">JSON書き出し</button>
+        <button id="exportMd">MD書き出し</button>
         <button id="import">インポート</button>
         <input id="importFile" type="file" accept="application/json" hidden />
         <div id="status" class="status"></div>
@@ -63,12 +64,27 @@
     const $status = document.getElementById("status");
     const $new = document.getElementById("new");
     const $del = document.getElementById("del");
-    const $export = document.getElementById("export");
+    const $exportJson = document.getElementById("exportJson");
+    const $exportMd = document.getElementById("exportMd");
     const $import = document.getElementById("import");
     const $importFile = document.getElementById("importFile");
 
     const uid = () => (crypto?.randomUUID?.() ?? String(Date.now()) + Math.random().toString(16).slice(2));
     const now = () => Date.now();
+
+    const formatTime = (ms) => {
+      const d = new Date(ms);
+      const pad = (n) => String(n).padStart(2, "0");
+      return `${d.getFullYear()}/${pad(d.getMonth()+1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    };
+
+    const titleOf = (text) => {
+      const line = (text ?? "").split("\n")[0].trim();
+      return line.length ? line.slice(0, 24) : "（無題）";
+    };
+
+    const escapeHtml = (s) =>
+      s.replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;");
 
     const load = () => {
       try {
@@ -77,7 +93,6 @@
       } catch {
         memos = [];
       }
-      // 何もなければ1件作る
       if (memos.length === 0) {
         const id = uid();
         memos = [{ id, text: "", updatedAt: now() }];
@@ -94,20 +109,6 @@
       setTimeout(() => ($status.textContent = ""), 1000);
     };
 
-    const formatTime = (ms) => {
-      const d = new Date(ms);
-      const pad = (n) => String(n).padStart(2, "0");
-      return `${d.getFullYear()}/${pad(d.getMonth()+1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-    };
-
-    const titleOf = (text) => {
-      const line = (text ?? "").split("\n")[0].trim();
-      return line.length ? line.slice(0, 24) : "（無題）";
-    };
-
-    const escapeHtml = (s) =>
-      s.replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;");
-
     const select = (id) => {
       currentId = id;
       const m = memos.find(x => x.id === id);
@@ -117,7 +118,6 @@
     };
 
     const render = () => {
-      // updatedAt降順で一覧
       const sorted = [...memos].sort((a,b) => b.updatedAt - a.updatedAt);
       $list.innerHTML = "";
       for (const m of sorted) {
@@ -167,8 +167,9 @@
       }, 300);
     });
 
-    const download = (filename, text) => {
-      const blob = new Blob([text], { type: "application/json" });
+    // ---- ダウンロード（汎用） ----
+    const download = (filename, text, mime) => {
+      const blob = new Blob([text], { type: mime });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -177,16 +178,42 @@
       URL.revokeObjectURL(url);
     };
 
-    $export.addEventListener("click", () => {
-      const payload = {
-        version: 1,
-        exportedAt: Date.now(),
-        memos
-      };
-      const ts = new Date().toISOString().replaceAll(":", "-");
-      download(`mini-memos-${ts}.json`, JSON.stringify(payload, null, 2));
+    const isoTs = () => new Date().toISOString().replaceAll(":", "-");
+
+    // ---- JSONエクスポート ----
+    $exportJson.addEventListener("click", () => {
+      const payload = { version: 1, exportedAt: Date.now(), memos };
+      download(`mini-memos-${isoTs()}.json`, JSON.stringify(payload, null, 2), "application/json");
     });
 
+    // ---- Markdownエクスポート ----
+    const toMarkdown = (memosArr) => {
+      const sorted = [...memosArr].sort((a,b) => b.updatedAt - a.updatedAt);
+      const exportedAt = formatTime(Date.now());
+
+      let out = `# ミニメモ 書き出し\n`;
+      out += `ExportedAt: ${exportedAt}\n\n`;
+      out += `---\n\n`;
+
+      for (const m of sorted) {
+        const title = titleOf(m.text);
+        const updated = formatTime(m.updatedAt);
+        const body = (m.text ?? "").trim();
+
+        out += `## ${title}\n`;
+        out += `UpdatedAt: ${updated}\n\n`;
+        out += `${body}\n\n`;
+        out += `---\n\n`;
+      }
+      return out;
+    };
+
+    $exportMd.addEventListener("click", () => {
+      const md = toMarkdown(memos);
+      download(`mini-memos-${isoTs()}.md`, md, "text/markdown");
+    });
+
+    // ---- JSONインポート（復元） ----
     $import.addEventListener("click", () => $importFile.click());
 
     $importFile.addEventListener("change", async () => {
@@ -200,18 +227,12 @@
         const imported = Array.isArray(obj?.memos) ? obj.memos : null;
         if (!imported) throw new Error("memos が見つかりません");
 
-        // 最低限の整形（壊れたデータを避ける）
-        const validMemos = imported
+        memos = imported
           .filter(m => m && typeof m.id === "string" && typeof m.text === "string" && typeof m.updatedAt === "number")
           .map(m => ({ id: m.id, text: m.text, updatedAt: m.updatedAt }));
 
-        if (validMemos.length === 0) throw new Error("有効なメモが0件です");
+        if (memos.length === 0) throw new Error("有効なメモが0件です");
 
-        // 確認ダイアログを表示
-        const msg = `${validMemos.length}件のメモをインポートします。\n現在のメモ（${memos.length}件）は上書きされます。\n\nよろしいですか？`;
-        if (!confirm(msg)) return;
-
-        memos = validMemos;
         currentId = memos[0].id;
         $editor.value = memos[0].text;
         save();
@@ -221,7 +242,7 @@
       } catch (e) {
         alert("インポートに失敗しました: " + (e?.message ?? e));
       } finally {
-        $importFile.value = ""; // 同じファイルを再選択できるように
+        $importFile.value = "";
       }
     });
 

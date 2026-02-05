@@ -227,11 +227,17 @@
         const imported = Array.isArray(obj?.memos) ? obj.memos : null;
         if (!imported) throw new Error("memos が見つかりません");
 
-        memos = imported
+        const validMemos = imported
           .filter(m => m && typeof m.id === "string" && typeof m.text === "string" && typeof m.updatedAt === "number")
           .map(m => ({ id: m.id, text: m.text, updatedAt: m.updatedAt }));
 
-        if (memos.length === 0) throw new Error("有効なメモが0件です");
+        if (validMemos.length === 0) throw new Error("有効なメモが0件です");
+
+        // 確認ダイアログを表示
+        const msg = `${validMemos.length}件のメモをインポートします。\n現在のメモ（${memos.length}件）は上書きされます。\n\nよろしいですか？`;
+        if (!confirm(msg)) return;
+
+        memos = validMemos;
 
         currentId = memos[0].id;
         $editor.value = memos[0].text;

@@ -72,7 +72,15 @@
         <button id="exportJson">JSON</button><button id="exportMd">MD</button><button id="import">インポート</button><button id="migrate">ローカル→クラウド移行</button>
         <input id="importFile" type="file" accept="application/json" hidden /><span id="status" class="status"></span>
       </div>
-      <input id="search" type="search" placeholder="検索（タイトル/本文）" />
+      <input id="search" type="search" placeholder="検索（タイトル/本文/タグ）" />
+      <div class="row" style="margin-top:8px;">
+        <label class="muted" for="notebookFilter">Notebook</label>
+        <select id="notebookFilter" style="padding:9px 10px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.18);color:var(--text);">
+          <option value="all">すべて</option>
+        </select>
+        <input id="tagFilter" type="search" placeholder="タグフィルタ（例: work）" style="max-width:180px;padding:9px 10px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.18);color:var(--text);" />
+        <label class="muted" style="display:inline-flex;align-items:center;gap:6px;"><input id="pinnedOnly" type="checkbox" />ピンのみ</label>
+      </div>
       <div class="row" style="margin-top:8px;"><div class="muted">Tips: 先頭1行がタイトルになります</div></div>
       <div id="list" class="list"></div>
     </div>
@@ -89,8 +97,16 @@
     const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
     const now = () => Date.now();
 
+    const normalizeNotebookId = (id) => (typeof id === "string" && id.trim() ? id.trim() : "default");
     const normalizeImported = (maybe) => Array.isArray(maybe)
-      ? maybe.filter((m) => m && typeof m.id === "string" && typeof m.text === "string" && typeof m.updatedAt === "number").map((m) => ({ id: m.id, text: m.text, updatedAt: m.updatedAt, pinned: Boolean(m.pinned) }))
+      ? maybe.filter((m) => m && typeof m.id === "string" && typeof m.text === "string" && typeof m.updatedAt === "number").map((m) => ({
+        id: m.id,
+        text: m.text,
+        updatedAt: m.updatedAt,
+        pinned: Boolean(m.pinned),
+        tags: Array.isArray(m.tags) ? m.tags.filter((t) => typeof t === "string").map((t) => t.trim()).filter(Boolean) : [],
+        notebookId: normalizeNotebookId(m.notebookId),
+      }))
       : [];
 
     const stateSchema = (state) => {
@@ -170,6 +186,7 @@
     const $list = $("list"); const $editor = $("editor"); const $status = $("status"); const $count = $("count"); const $search = $("search");
     const $pin = $("pin"); const $importFile = $("importFile"); const $charCount = $("charCount"); const $authLabel = $("authLabel");
     const $storageBadge = $("storageBadge"); const $syncStatus = $("syncStatus"); const $migrate = $("migrate");
+    const $notebookFilter = $("notebookFilter"); const $tagFilter = $("tagFilter"); const $pinnedOnly = $("pinnedOnly");
 
     const setStatus = (text, kind = "ok", ms = 1200) => { $status.textContent = text; $status.className = `status ${kind}`; if (ms > 0) setTimeout(() => { $status.textContent = ""; $status.className = "status"; }, ms); };
     const setSync = (state, detail = "") => {
@@ -180,6 +197,15 @@
 
     const formatTime = (ms) => { const d = new Date(ms); const pad = (n) => String(n).padStart(2, "0"); return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
     const titleOf = (text) => ((text ?? "").split("\n")[0].trim().slice(0, 30) || "（無題）");
+    const sortMemos = (items) => [...items].sort((a, b) => (a.pinned !== b.pinned ? (a.pinned ? -1 : 1) : b.updatedAt - a.updatedAt));
+    const selectedNotebookId = () => ($notebookFilter.value && $notebookFilter.value !== "all" ? $notebookFilter.value : "default");
+
+    const refreshNotebookFilterOptions = () => {
+      const prev = $notebookFilter.value || "all";
+      const notebooks = ["default", ...new Set(memos.map((m) => normalizeNotebookId(m.notebookId)))].sort();
+      $notebookFilter.innerHTML = '<option value="all">すべて</option>' + notebooks.map((n) => `<option value="${n}">${n}</option>`).join("");
+      $notebookFilter.value = notebooks.includes(prev) || prev === "all" ? prev : "all";
+    };
 
     const activeAdapter = () => (auth.loggedIn ? cloudAdapter : localAdapter);
     const updateTopbar = () => {
@@ -243,7 +269,7 @@
       currentId = state.currentId;
       if (memos.length === 0) {
         const id = uid();
-        memos = [{ id, text: "", updatedAt: now(), pinned: false }];
+        memos = [{ id, text: "", updatedAt: now(), pinned: false, tags: [], notebookId: "default" }];
         currentId = id;
         saveStateThroughAdapter();
       }
@@ -287,13 +313,23 @@
 
     const filtered = () => {
       const q = ($search.value ?? "").trim().toLowerCase();
-      const sorted = [...memos].sort((a, b) => (a.pinned !== b.pinned ? (a.pinned ? -1 : 1) : b.updatedAt - a.updatedAt));
-      if (!q) return sorted;
-      return sorted.filter((m) => (m.text ?? "").toLowerCase().includes(q) || titleOf(m.text).toLowerCase().includes(q));
+      const notebook = $notebookFilter.value;
+      const tagQ = ($tagFilter.value ?? "").trim().toLowerCase();
+      const pinnedOnly = $pinnedOnly.checked;
+      const filteredItems = memos.filter((m) => {
+        if (notebook && notebook !== "all" && normalizeNotebookId(m.notebookId) !== notebook) return false;
+        if (pinnedOnly && !m.pinned) return false;
+        if (tagQ && !m.tags.some((t) => t.toLowerCase().includes(tagQ))) return false;
+        if (!q) return true;
+        const target = `${titleOf(m.text)}\n${m.text}\n${(m.tags || []).join(" ")}`.toLowerCase();
+        return target.includes(q);
+      });
+      return sortMemos(filteredItems);
     };
 
     const render = () => {
       const items = filtered();
+      refreshNotebookFilterOptions();
       $count.textContent = `表示: ${items.length} / 全: ${memos.length}`;
       $list.innerHTML = "";
       if (items.length === 0) { const empty = document.createElement("div"); empty.className = "emptyState"; empty.textContent = "該当するメモがありません。"; $list.appendChild(empty); return; }
@@ -301,7 +337,7 @@
         const div = document.createElement("div");
         div.className = `item${m.id === currentId ? " active" : ""}${m.pinned ? " pinned" : ""}`;
         div.dataset.id = m.id;
-        div.innerHTML = `<div class="itemHeader"><div class="title">${titleOf(m.text)}</div><div>${m.pinned ? "★" : "☆"}</div></div><div class="meta">${formatTime(m.updatedAt)}</div>`;
+        div.innerHTML = `<div class="itemHeader"><div class="title">${titleOf(m.text)}</div><div>${m.pinned ? "★" : "☆"}</div></div><div class="meta">${formatTime(m.updatedAt)} ｜ nb:${normalizeNotebookId(m.notebookId)}${m.tags.length ? ` ｜ #${m.tags.join(" #")}` : ""}</div>`;
         div.addEventListener("click", () => select(m.id));
         $list.appendChild(div);
       }
@@ -317,15 +353,20 @@
 
     const isoTs = () => new Date().toISOString().replaceAll(":", "-");
 
-    $("new").addEventListener("click", () => { const id = uid(); memos.push({ id, text: "", updatedAt: now(), pinned: false }); select(id); saveStateThroughAdapter(); });
-    $("dup").addEventListener("click", () => { const m = memos.find((x) => x.id === currentId); if (!m) return; const id = uid(); memos.push({ id, text: m.text, updatedAt: now(), pinned: false }); select(id); saveStateThroughAdapter(); });
+    $("new").addEventListener("click", () => { const id = uid(); memos.push({ id, text: "", updatedAt: now(), pinned: false, tags: [], notebookId: selectedNotebookId() }); select(id); saveStateThroughAdapter(); });
+    $("dup").addEventListener("click", () => {
+      const m = memos.find((x) => x.id === currentId); if (!m) return;
+      const id = uid();
+      memos.push({ id, text: m.text, updatedAt: now(), pinned: false, tags: [...(m.tags || [])], notebookId: selectedNotebookId() });
+      select(id); saveStateThroughAdapter();
+    });
     $("del").addEventListener("click", () => {
       const idx = memos.findIndex((x) => x.id === currentId); if (idx === -1) return;
       if (!confirm("このメモを削除します。OK？")) return;
       const deletedId = currentId;
       memos.splice(idx, 1);
-      if (memos.length === 0) memos.push({ id: uid(), text: "", updatedAt: now(), pinned: false });
-      currentId = [...memos].sort((a, b) => b.updatedAt - a.updatedAt)[0].id;
+      if (memos.length === 0) memos.push({ id: uid(), text: "", updatedAt: now(), pinned: false, tags: [], notebookId: selectedNotebookId() });
+      currentId = sortMemos(memos)[0].id;
       $editor.value = memos.find((x) => x.id === currentId)?.text ?? "";
       if (auth.loggedIn) {
         try { cloudAdapter.deleteMemo(deletedId, auth); setSync("idle"); }
@@ -339,10 +380,13 @@
     $editor.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(saveCurrentMemo, 300); updateCharCount(); });
     $editor.addEventListener("blur", () => { clearTimeout(timer); saveCurrentMemo(); });
     $search.addEventListener("input", render);
+    $notebookFilter.addEventListener("change", render);
+    $tagFilter.addEventListener("input", render);
+    $pinnedOnly.addEventListener("change", render);
 
-    $("exportJson").addEventListener("click", () => { download(`mini-memos-${isoTs()}.json`, JSON.stringify({ version: 4, exportedAt: Date.now(), memos }, null, 2), "application/json;charset=utf-8"); setStatus("JSONを書き出しました"); });
+    $("exportJson").addEventListener("click", () => { download(`mini-memos-${isoTs()}.json`, JSON.stringify({ version: 5, exportedAt: Date.now(), memos }, null, 2), "application/json;charset=utf-8"); setStatus("JSONを書き出しました"); });
     $("exportMd").addEventListener("click", () => {
-      const md = [...memos].sort((a, b) => b.updatedAt - a.updatedAt).map((m) => `## ${titleOf(m.text)}\nUpdatedAt: ${formatTime(m.updatedAt)}\n\n${m.text}\n`).join("\n---\n\n");
+      const md = sortMemos(memos).map((m) => `## ${titleOf(m.text)}\nUpdatedAt: ${formatTime(m.updatedAt)}\nNotebook: ${normalizeNotebookId(m.notebookId)}\nTags: ${(m.tags || []).join(", ")}\n\n${m.text}\n`).join("\n---\n\n");
       download(`mini-memos-${isoTs()}.md`, `# ミニメモ\n\n${md}`, "text/markdown;charset=utf-8");
       setStatus("MDを書き出しました");
     });
@@ -356,7 +400,7 @@
         if (imported.length === 0) throw new Error("有効なメモが0件です");
         if (!confirm(`${imported.length}件をインポートし、現在データを上書きします。よろしいですか？`)) return;
         memos = imported;
-        currentId = [...memos].sort((a, b) => b.updatedAt - a.updatedAt)[0].id;
+        currentId = sortMemos(memos)[0].id;
         $editor.value = memos.find((x) => x.id === currentId)?.text ?? "";
         saveStateThroughAdapter(); render(); setStatus("インポートしました");
       } catch (e) { setStatus(`インポート失敗: ${e.message ?? e}`, "err", 2000); }
@@ -399,7 +443,7 @@
       if (remote.memos.length === 0 && local.memos.length > 0) {
         setStatus("初回ログイン: ローカル→クラウド移行できます", "warn", 2200);
       }
-      memos = remote.memos.length ? remote.memos : [{ id: uid(), text: "", updatedAt: now(), pinned: false }];
+      memos = remote.memos.length ? remote.memos : [{ id: uid(), text: "", updatedAt: now(), pinned: false, tags: [], notebookId: "default" }];
       currentId = remote.currentId || memos[0].id;
       processQueue();
       select(currentId);
@@ -413,7 +457,7 @@
       clearTimeout(timer); saveCurrentMemo();
       auth = { loggedIn: false }; saveAuth(auth); updateTopbar();
       const local = localAdapter.loadState(); memos = local.memos; currentId = local.currentId;
-      if (!memos.length) { const id = uid(); memos = [{ id, text: "", updatedAt: now(), pinned: false }]; currentId = id; localAdapter.saveState({ memos, currentId }); }
+      if (!memos.length) { const id = uid(); memos = [{ id, text: "", updatedAt: now(), pinned: false, tags: [], notebookId: "default" }]; currentId = id; localAdapter.saveState({ memos, currentId }); }
       select(currentId); render();
     });
 

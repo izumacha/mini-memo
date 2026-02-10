@@ -406,7 +406,7 @@
     <div class="panel">
       <div class="panelHeader">
         <div class="panelTitle">Editor</div>
-        <div class="muted" style="margin-left:auto;">自動保存: 300ms ｜ <kbd>Ctrl+N</kbd> 新規 ｜ <kbd>Ctrl+D</kbd> 複製 ｜ <kbd>Ctrl+E</kbd> JSON出力</div>
+        <div id="shortcutHint" class="muted" style="margin-left:auto;">自動保存: 300ms ｜ <kbd>Ctrl+N</kbd>/<kbd>⌘N</kbd> 新規 ｜ <kbd>Ctrl+D</kbd>/<kbd>⌘D</kbd> 複製 ｜ <kbd>Ctrl+E</kbd>/<kbd>⌘E</kbd> JSON出力</div>
       </div>
       <textarea id="editor" placeholder="メモ本文…（先頭1行がタイトルになります）"></textarea>
       <div id="charCount" class="charCount"></div>
@@ -436,9 +436,16 @@
     const $importFile = document.getElementById("importFile");
     const $charCount = document.getElementById("charCount");
     const $pin = document.getElementById("pin");
+    const $shortcutHint = document.getElementById("shortcutHint");
 
     const uid = () => (crypto?.randomUUID?.() ?? String(Date.now()) + Math.random().toString(16).slice(2));
     const now = () => Date.now();
+    const isMac = navigator.platform.toLowerCase().includes("mac");
+
+    if ($shortcutHint) {
+      const mod = isMac ? "⌘" : "Ctrl+";
+      $shortcutHint.innerHTML = `自動保存: 300ms ｜ <kbd>${mod}N</kbd> 新規 ｜ <kbd>${mod}D</kbd> 複製 ｜ <kbd>${mod}E</kbd> JSON出力`;
+    }
 
     const setStatus = (text, kind = "ok", ms = 1000) => {
       $status.textContent = text;
@@ -723,15 +730,16 @@
 
     // ---- キーボードショートカット ----
     document.addEventListener("keydown", (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "n") {
+      const key = e.key.toLowerCase();
+      if ((e.ctrlKey || e.metaKey) && key === "n") {
         e.preventDefault();
         $new.click();
       }
-      if ((e.ctrlKey || e.metaKey) && e.key === "e") {
+      if ((e.ctrlKey || e.metaKey) && key === "e") {
         e.preventDefault();
         $exportJson.click();
       }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "d") {
+      if ((e.ctrlKey || e.metaKey) && key === "d") {
         e.preventDefault();
         $dup.click();
       }

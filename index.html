@@ -43,6 +43,15 @@
     .charCount{margin-top:8px;font-size:12px;color:var(--muted2);font-family:"JetBrains Mono",monospace;text-align:right}
     .panelHeader{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
     .panelTitle{font-size:12px;color:rgba(255,255,255,.78);font-weight:700}
+    .shareMeta{margin-top:8px;padding:10px;border-radius:12px;border:1px solid var(--stroke);background:rgba(255,255,255,.03);font-size:12px;color:var(--muted)}
+    .shareUrl{font-family:"JetBrains Mono",monospace;word-break:break-all;color:rgba(255,255,255,.8)}
+    .readonlyWrap{max-width:920px;margin:0 auto;padding:20px}
+    .readonlyTitle{font-size:28px;margin:0 0 6px}
+    .readonlyMeta{font-size:12px;color:var(--muted2);margin-bottom:16px}
+    .readonlyBody{white-space:pre-wrap;line-height:1.7;border:1px solid var(--stroke);background:rgba(255,255,255,.03);padding:16px;border-radius:16px}
+    .warningList{margin:8px 0 0;padding-left:18px;color:#FBBF24}
+    .toast{position:fixed;right:18px;bottom:18px;padding:10px 14px;border-radius:12px;background:rgba(7,10,18,.95);border:1px solid var(--stroke2);box-shadow:var(--shadow);font-size:12px;opacity:0;transform:translateY(8px);pointer-events:none;transition:.2s;z-index:50}
+    .toast.show{opacity:1;transform:translateY(0)}
     .modal{position:fixed;inset:0;background:rgba(7,10,18,.78);display:none;align-items:center;justify-content:center;padding:18px;z-index:40}
     .modal.isOpen{display:flex}
     .modalCard{width:min(980px,96vw);max-height:86vh;overflow:auto;background:rgba(15,22,42,.95);border:1px solid var(--stroke2);border-radius:18px;padding:14px;box-shadow:var(--shadow)}
@@ -99,9 +108,27 @@
       <div id="list" class="list"></div>
     </div>
     <div class="panel">
-      <div class="panelHeader"><div class="panelTitle">Editor</div><div class="row"><button id="viewHistory">履歴を見る</button><div id="shortcutHint" class="muted">自動保存: 300ms</div></div></div>
+      <div class="panelHeader"><div class="panelTitle">Editor</div><div class="row"><button id="share">共有</button><button id="viewHistory">履歴を見る</button><div id="shortcutHint" class="muted">自動保存: 300ms</div></div></div>
       <textarea id="editor" placeholder="メモ本文…（先頭1行がタイトルになります）"></textarea>
       <div id="charCount" class="charCount"></div>
+    </div>
+  </div>
+
+  <div id="shareModal" class="modal" role="dialog" aria-modal="true">
+    <div class="modalCard">
+      <div class="modalHead"><strong>共有設定</strong><button id="closeShare">閉じる</button></div>
+      <div class="row" style="margin-bottom:8px;">
+        <label class="muted"><input type="radio" name="shareScope" value="private" checked /> 非公開</label>
+        <label class="muted"><input type="radio" name="shareScope" value="link" /> リンクを知っている人のみ</label>
+      </div>
+      <div id="piiWarning" class="muted"></div>
+      <div id="shareMeta" class="shareMeta" style="display:none;"></div>
+      <div class="row" style="margin-top:10px;">
+        <button id="copyShareLink">URLを生成してコピー</button>
+        <button id="regenerateShareLink">再生成</button>
+        <button id="disableShareLink">共有停止</button>
+      </div>
+      <div class="muted" style="margin-top:10px;">※再生成または共有停止すると旧リンクは無効になります。</div>
     </div>
   </div>
 
@@ -135,14 +162,16 @@
   </div>
 
   <div id="snackbar" class="snackbar"><span id="snackbarText"></span><button id="snackbarUndo">Undo</button></div>
+  <div id="toast" class="toast"></div>
 
   <script>
-    const STORAGE_KEYS = { localState: "mini_memos_state_v4", auth: "mini_memos_auth_v1", queue: "mini_memos_sync_queue_v1" };
+    const STORAGE_KEYS = { localState: "mini_memos_state_v4", auth: "mini_memos_auth_v1", queue: "mini_memos_sync_queue_v1", share: "mini_memos_share_v1" };
     const HISTORY_LIMIT = 20;
     const TRASH_RETENTION_MS = 1000 * 60 * 60 * 24 * 7;
 
     const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
     const now = () => Date.now();
+    const scopeLabel = { private: "非公開", link: "リンクを知っている人のみ" };
 
     const normalizeNotebookId = (id) => (typeof id === "string" && id.trim() ? id.trim() : "default");
     const normalizeHistory = (history) => Array.isArray(history)
@@ -171,6 +200,49 @@
       : [];
 
     const purgeExpiredTrash = (trash) => trash.filter((t) => (now() - t.deletedAt) < TRASH_RETENTION_MS);
+    const normalizeShareMeta = (maybe) => {
+      if (!maybe || typeof maybe !== "object") return {};
+      return Object.fromEntries(Object.entries(maybe)
+        .filter(([memoId, meta]) => typeof memoId === "string" && meta && typeof meta === "object")
+        .map(([memoId, meta]) => [memoId, {
+          scope: meta.scope === "link" ? "link" : "private",
+          token: typeof meta.token === "string" ? meta.token : "",
+          url: typeof meta.url === "string" ? meta.url : "",
+          generatedAt: typeof meta.generatedAt === "number" ? meta.generatedAt : 0,
+          snapshot: {
+            title: typeof meta.snapshot?.title === "string" ? meta.snapshot.title : "（無題）",
+            body: typeof meta.snapshot?.body === "string" ? meta.snapshot.body : "",
+            updatedAt: typeof meta.snapshot?.updatedAt === "number" ? meta.snapshot.updatedAt : 0,
+          },
+          revokedTokens: Array.isArray(meta.revokedTokens) ? meta.revokedTokens.filter((t) => typeof t === "string") : [],
+          piiWarnings: Array.isArray(meta.piiWarnings) ? meta.piiWarnings.filter((w) => typeof w === "string") : [],
+        }]));
+    };
+
+    const simpleHash = (text) => {
+      let hash = 0;
+      for (let i = 0; i < text.length; i += 1) hash = ((hash << 5) - hash + text.charCodeAt(i)) | 0;
+      return Math.abs(hash).toString(36);
+    };
+    const escapeHtml = (text) => String(text ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+
+    const detectPII = (text) => {
+      const checks = [
+        { label: "メールアドレスらしき文字列", re: /[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/ },
+        { label: "電話番号らしき文字列", re: /(\+?\d{1,3}[\s-]?)?(0\d{1,4}[\s-]?\d{1,4}[\s-]?\d{3,4})/ },
+        { label: "住所らしき文字列", re: /(都|道|府|県).*(市|区|町|村)/ },
+      ];
+      return checks.filter((c) => c.re.test(text)).map((c) => c.label);
+    };
+
+    const buildShareUrl = (memo, token) => {
+      const u = new URL(window.location.href);
+      u.searchParams.set("share", token);
+      u.searchParams.delete("memo");
+      return u.toString();
+    };
+
+    const createShareToken = (memo) => `${memo.id}-${simpleHash(memo.text || "")}-${uid()}`;
 
     const stateSchema = (state) => {
       const memos = normalizeImported(state?.memos);
@@ -185,6 +257,28 @@
     };
 
     const saveAuth = (auth) => localStorage.setItem(STORAGE_KEYS.auth, JSON.stringify(auth));
+
+    const localShareStore = {
+      load() {
+        try { return normalizeShareMeta(JSON.parse(localStorage.getItem(STORAGE_KEYS.share) || "null")); }
+        catch { return {}; }
+      },
+      save(meta) { localStorage.setItem(STORAGE_KEYS.share, JSON.stringify(normalizeShareMeta(meta))); },
+    };
+
+    const cloudShareKey = (userId) => `mini_memos_cloud_share_${userId}`;
+    const cloudShareStore = {
+      load(authState) {
+        if (!authState?.loggedIn) return {};
+        try { return normalizeShareMeta(JSON.parse(localStorage.getItem(cloudShareKey(authState.id)) || "null")); }
+        catch { return {}; }
+      },
+      save(meta, authState) {
+        if (!authState?.loggedIn) throw new Error("not_logged_in");
+        if (!navigator.onLine) throw new Error("offline");
+        localStorage.setItem(cloudShareKey(authState.id), JSON.stringify(normalizeShareMeta(meta)));
+      },
+    };
 
     const localAdapter = {
       name: "local",
@@ -243,6 +337,7 @@
     let memos = [];
     let trash = [];
     let currentId = null;
+    let shareMeta = {};
     let timer = null;
     let syncState = "idle";
     let selectedHistorySavedAt = null;
@@ -256,7 +351,8 @@
     const $notebookFilter = $("notebookFilter"); const $tagFilter = $("tagFilter"); const $pinnedOnly = $("pinnedOnly");
     const $historyModal = $("historyModal"); const $historyList = $("historyList"); const $historyPreview = $("historyPreview"); const $historyCurrent = $("historyCurrent");
     const $trashModal = $("trashModal"); const $trashList = $("trashList");
-    const $snackbar = $("snackbar"); const $snackbarText = $("snackbarText"); const $snackbarUndo = $("snackbarUndo");
+    const $shareModal = $("shareModal"); const $shareMeta = $("shareMeta"); const $piiWarning = $("piiWarning");
+    const $snackbar = $("snackbar"); const $snackbarText = $("snackbarText"); const $snackbarUndo = $("snackbarUndo"); const $toast = $("toast");
 
     const setStatus = (text, kind = "ok", ms = 1200) => { $status.textContent = text; $status.className = `status ${kind}`; if (ms > 0) setTimeout(() => { $status.textContent = ""; $status.className = "status"; }, ms); };
     const setSync = (state, detail = "") => {
@@ -277,6 +373,45 @@
         $snackbar.classList.remove("show");
       };
       undoTimer = setTimeout(() => { $snackbar.classList.remove("show"); }, 6000);
+    };
+
+    const showToast = (message) => {
+      $toast.textContent = message;
+      $toast.classList.add("show");
+      setTimeout(() => $toast.classList.remove("show"), 1800);
+    };
+
+    const loadShareMeta = () => {
+      shareMeta = auth.loggedIn ? cloudShareStore.load(auth) : localShareStore.load();
+      shareMeta = normalizeShareMeta(shareMeta);
+    };
+
+    const saveShareMeta = () => {
+      try {
+        if (auth.loggedIn) cloudShareStore.save(shareMeta, auth);
+        else localShareStore.save(shareMeta);
+      } catch (e) {
+        if (String(e.message).includes("offline")) {
+          localShareStore.save(shareMeta);
+          setStatus("共有情報はローカルへ退避しました", "warn", 1700);
+        } else setStatus("共有情報の保存に失敗", "err", 1700);
+      }
+    };
+
+    const renderReadonlySharePage = (shareToken) => {
+      const allMeta = { ...localShareStore.load(), ...(auth.loggedIn ? cloudShareStore.load(auth) : {}) };
+      const entry = Object.values(allMeta).find((meta) => meta.scope === "link" && meta.token === shareToken && !meta.revokedTokens.includes(shareToken));
+      document.body.innerHTML = "";
+      const wrap = document.createElement("div");
+      wrap.className = "readonlyWrap";
+      if (!entry) {
+        wrap.innerHTML = `<div class="panel"><h1 class="readonlyTitle">リンクは無効です</h1><div class="readonlyMeta">共有停止または再生成によりこのURLは利用できません。</div></div>`;
+        document.body.appendChild(wrap);
+        return true;
+      }
+      wrap.innerHTML = `<div class="panel"><h1 class="readonlyTitle">${escapeHtml(entry.snapshot.title)}</h1><div class="readonlyMeta">最終更新: ${formatTime(entry.snapshot.updatedAt)}</div><div class="readonlyBody">${escapeHtml(entry.snapshot.body)}</div><div class="readonlyMeta" style="margin-top:10px;">このページは閲覧専用です（編集不可）。</div></div>`;
+      document.body.appendChild(wrap);
+      return true;
     };
 
     const appendHistorySnapshot = (memo, previousText) => {
@@ -355,6 +490,7 @@
 
     const loadInitialState = () => {
       const state = auth.loggedIn ? cloudAdapter.loadState(auth) : localAdapter.loadState();
+      loadShareMeta();
       memos = state.memos;
       trash = state.trash;
       currentId = state.currentId;
@@ -528,6 +664,67 @@
       }
     };
 
+    const getShareInfo = (memoId) => shareMeta[memoId] || { scope: "private", token: "", url: "", generatedAt: 0, snapshot: { title: "（無題）", body: "", updatedAt: 0 }, revokedTokens: [], piiWarnings: [] };
+
+    const updateShareModal = () => {
+      const memo = getCurrentMemo();
+      if (!memo) return;
+      const info = getShareInfo(memo.id);
+      const selected = document.querySelector('input[name="shareScope"]:checked')?.value || info.scope;
+      const body = memo.text || "";
+      const warnings = detectPII(body);
+      $piiWarning.innerHTML = warnings.length ? `<div>注意: 個人情報らしき文字列が含まれている可能性があります。</div><ul class="warningList">${warnings.map((w) => `<li>${w}</li>`).join("")}</ul>` : "";
+      if (info.url && info.scope === "link") {
+        $shareMeta.style.display = "block";
+        $shareMeta.innerHTML = `<div>公開範囲: ${scopeLabel[selected]}</div><div>生成日時: ${formatTime(info.generatedAt)}</div><div class="shareUrl">${info.url}</div>`;
+      } else {
+        $shareMeta.style.display = "block";
+        $shareMeta.innerHTML = `<div>公開範囲: ${scopeLabel[selected]}</div><div>共有リンクは未発行です。</div>`;
+      }
+    };
+
+    const upsertShareScope = (memoId, scope) => {
+      const prev = getShareInfo(memoId);
+      shareMeta[memoId] = { ...prev, scope };
+      saveShareMeta();
+    };
+
+    const invalidateCurrentShare = (memoId) => {
+      const prev = getShareInfo(memoId);
+      const revoked = prev.token ? [...prev.revokedTokens, prev.token] : prev.revokedTokens;
+      shareMeta[memoId] = { ...prev, token: "", url: "", generatedAt: 0, scope: "private", revokedTokens: revoked };
+      saveShareMeta();
+    };
+
+    const issueShareLink = async (forceRegenerate = false) => {
+      const memo = getCurrentMemo();
+      if (!memo) return;
+      const prev = getShareInfo(memo.id);
+      const warnings = detectPII(memo.text || "");
+      const revokedTokens = [...prev.revokedTokens];
+      if (forceRegenerate && prev.token) revokedTokens.push(prev.token);
+      const token = (!forceRegenerate && prev.token) ? prev.token : createShareToken(memo);
+      const url = buildShareUrl(memo, token);
+      shareMeta[memo.id] = {
+        ...prev,
+        scope: "link",
+        token,
+        url,
+        generatedAt: now(),
+        revokedTokens,
+        piiWarnings: warnings,
+        snapshot: { title: titleOf(memo.text), body: memo.text, updatedAt: memo.updatedAt || now() },
+      };
+      saveShareMeta();
+      try {
+        await navigator.clipboard.writeText(url);
+        showToast("共有URLをコピーしました");
+      } catch {
+        setStatus("コピーに失敗しました", "warn", 1800);
+      }
+      updateShareModal();
+    };
+
     $("new").addEventListener("click", () => { const id = uid(); memos.push({ id, text: "", updatedAt: now(), pinned: false, tags: [], notebookId: selectedNotebookId(), history: [] }); select(id); saveStateThroughAdapter(); });
     $("dup").addEventListener("click", () => {
       const m = memos.find((x) => x.id === currentId); if (!m) return;
@@ -539,6 +736,8 @@
       const idx = memos.findIndex((x) => x.id === currentId); if (idx === -1) return;
       if (!confirm("このメモをゴミ箱へ移動します。OK？")) return;
       const [removed] = memos.splice(idx, 1);
+      delete shareMeta[removed.id];
+      saveShareMeta();
       trash.unshift({ memo: removed, deletedAt: now() });
       trash = purgeExpiredTrash(trash);
       if (!memos.length) {
@@ -560,6 +759,33 @@
     $tagFilter.addEventListener("input", render);
     $pinnedOnly.addEventListener("change", render);
 
+
+    $("share").addEventListener("click", () => {
+      const memo = getCurrentMemo();
+      if (!memo) return;
+      const info = getShareInfo(memo.id);
+      const target = document.querySelector(`input[name="shareScope"][value="${info.scope}"]`) || document.querySelector('input[name="shareScope"][value="private"]');
+      if (target) target.checked = true;
+      updateShareModal();
+      openModal($shareModal);
+    });
+    $("closeShare").addEventListener("click", () => closeModal($shareModal));
+    document.querySelectorAll('input[name="shareScope"]').forEach((radio) => radio.addEventListener("change", () => {
+      const memo = getCurrentMemo();
+      if (!memo) return;
+      upsertShareScope(memo.id, radio.value);
+      if (radio.value === "private") invalidateCurrentShare(memo.id);
+      updateShareModal();
+    }));
+    $("copyShareLink").addEventListener("click", () => issueShareLink(false));
+    $("regenerateShareLink").addEventListener("click", () => issueShareLink(true));
+    $("disableShareLink").addEventListener("click", () => {
+      const memo = getCurrentMemo();
+      if (!memo) return;
+      invalidateCurrentShare(memo.id);
+      updateShareModal();
+      setStatus("共有を停止しました", "ok", 1400);
+    });
 
     $("viewHistory").addEventListener("click", openHistory);
     $("closeHistory").addEventListener("click", () => closeModal($historyModal));
@@ -590,7 +816,7 @@
       });
     });
 
-    $("exportJson").addEventListener("click", () => { download(`mini-memos-${isoTs()}.json`, JSON.stringify({ version: 6, exportedAt: Date.now(), memos, trash }, null, 2), "application/json;charset=utf-8"); setStatus("JSONを書き出しました"); });
+    $("exportJson").addEventListener("click", () => { download(`mini-memos-${isoTs()}.json`, JSON.stringify({ version: 7, exportedAt: Date.now(), memos, trash, shareMeta }, null, 2), "application/json;charset=utf-8"); setStatus("JSONを書き出しました"); });
     $("exportMd").addEventListener("click", () => {
       const md = sortMemos(memos).map((m) => `## ${titleOf(m.text)}\nUpdatedAt: ${formatTime(m.updatedAt)}\nNotebook: ${normalizeNotebookId(m.notebookId)}\nTags: ${(m.tags || []).join(", ")}\n\n${m.text}\n`).join("\n---\n\n");
       download(`mini-memos-${isoTs()}.md`, `# ミニメモ\n\n${md}`, "text/markdown;charset=utf-8");
@@ -609,6 +835,8 @@
         if (confirmText !== "IMPORT") return setStatus("インポートを中止しました", "warn", 1600);
         if (!keepHistory) imported.forEach((m) => { m.history = []; });
         memos = imported;
+        shareMeta = normalizeShareMeta(obj?.shareMeta);
+        saveShareMeta();
         trash = [];
         currentId = sortMemos(memos)[0].id;
         $editor.value = memos.find((x) => x.id === currentId)?.text ?? "";
@@ -629,6 +857,8 @@
       if (!confirm(msg)) return;
       try {
         cloudAdapter.saveState(local, auth);
+        shareMeta = localShareStore.load();
+        cloudShareStore.save(shareMeta, auth);
         memos = local.memos; trash = local.trash || []; currentId = local.currentId;
         select(currentId || memos[0]?.id);
         setStatus("クラウド移行が完了しました", "ok", 1600);
@@ -654,6 +884,7 @@
         setStatus("初回ログイン: ローカル→クラウド移行できます", "warn", 2200);
       }
       memos = remote.memos.length ? remote.memos : [{ id: uid(), text: "", updatedAt: now(), pinned: false, tags: [], notebookId: "default", history: [] }];
+      shareMeta = cloudShareStore.load(auth);
       trash = remote.trash || [];
       currentId = remote.currentId || memos[0].id;
       processQueue();
@@ -667,7 +898,7 @@
     $("logout").addEventListener("click", () => {
       clearTimeout(timer); saveCurrentMemo();
       auth = { loggedIn: false }; saveAuth(auth); updateTopbar();
-      const local = localAdapter.loadState(); memos = local.memos; trash = local.trash || []; currentId = local.currentId;
+      const local = localAdapter.loadState(); memos = local.memos; shareMeta = localShareStore.load(); trash = local.trash || []; currentId = local.currentId;
       if (!memos.length) { const id = uid(); memos = [{ id, text: "", updatedAt: now(), pinned: false, tags: [], notebookId: "default", history: [] }]; currentId = id; localAdapter.saveState({ memos, currentId, trash }); }
       select(currentId); render();
     });
@@ -680,12 +911,18 @@
     document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") { clearTimeout(timer); saveCurrentMemo(); } });
     window.addEventListener("beforeunload", () => { clearTimeout(timer); saveCurrentMemo(); });
 
-    updateTopbar();
-    loadInitialState();
-    select(currentId);
-    render();
-    updateCharCount();
-    processQueue();
+    const shareToken = new URLSearchParams(window.location.search).get("share");
+    if (shareToken) {
+      loadShareMeta();
+      renderReadonlySharePage(shareToken);
+    } else {
+      updateTopbar();
+      loadInitialState();
+      select(currentId);
+      render();
+      updateCharCount();
+      processQueue();
+    }
   </script>
 </body>
 </html>

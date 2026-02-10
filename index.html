@@ -43,6 +43,20 @@
     .charCount{margin-top:8px;font-size:12px;color:var(--muted2);font-family:"JetBrains Mono",monospace;text-align:right}
     .panelHeader{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
     .panelTitle{font-size:12px;color:rgba(255,255,255,.78);font-weight:700}
+    .modal{position:fixed;inset:0;background:rgba(7,10,18,.78);display:none;align-items:center;justify-content:center;padding:18px;z-index:40}
+    .modal.isOpen{display:flex}
+    .modalCard{width:min(980px,96vw);max-height:86vh;overflow:auto;background:rgba(15,22,42,.95);border:1px solid var(--stroke2);border-radius:18px;padding:14px;box-shadow:var(--shadow)}
+    .modalHead{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px}
+    .historyLayout{display:grid;grid-template-columns:280px 1fr;gap:10px}
+    .historyList{display:flex;flex-direction:column;gap:6px;max-height:60vh;overflow:auto}
+    .historyItem{border:1px solid var(--stroke);border-radius:10px;padding:8px;font-size:12px;cursor:pointer;background:rgba(255,255,255,.03)}
+    .historyItem.active{border-color:rgba(124,92,255,.65);background:rgba(124,92,255,.18)}
+    .compareCols{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    .compareCols textarea{min-height:48vh;font-size:13px}
+    .snackbar{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);display:none;align-items:center;gap:12px;padding:10px 12px;border-radius:12px;background:rgba(15,22,42,.96);border:1px solid var(--stroke2);z-index:60}
+    .snackbar.show{display:flex}
+    .trashMeta{font-size:11px;color:var(--muted2)}
+    @media (max-width:860px){.historyLayout,.compareCols{grid-template-columns:1fr}}
   </style>
 </head>
 <body>
@@ -68,7 +82,7 @@
     <div class="panel">
       <div class="panelHeader"><div class="panelTitle">Memos</div><div id="count" class="count"></div></div>
       <div class="row" style="margin-bottom:10px;">
-        <button id="new">＋ 新規</button><button id="dup">複製</button><button id="del">削除</button><button id="pin">ピン留め</button>
+        <button id="new">＋ 新規</button><button id="dup">複製</button><button id="del">削除</button><button id="pin">ピン留め</button><button id="openTrash">ゴミ箱</button>
         <button id="exportJson">JSON</button><button id="exportMd">MD</button><button id="import">インポート</button><button id="migrate">ローカル→クラウド移行</button>
         <input id="importFile" type="file" accept="application/json" hidden /><span id="status" class="status"></span>
       </div>
@@ -85,19 +99,58 @@
       <div id="list" class="list"></div>
     </div>
     <div class="panel">
-      <div class="panelHeader"><div class="panelTitle">Editor</div><div id="shortcutHint" class="muted">自動保存: 300ms</div></div>
+      <div class="panelHeader"><div class="panelTitle">Editor</div><div class="row"><button id="viewHistory">履歴を見る</button><div id="shortcutHint" class="muted">自動保存: 300ms</div></div></div>
       <textarea id="editor" placeholder="メモ本文…（先頭1行がタイトルになります）"></textarea>
       <div id="charCount" class="charCount"></div>
     </div>
   </div>
 
+  <div id="historyModal" class="modal" role="dialog" aria-modal="true">
+    <div class="modalCard">
+      <div class="modalHead"><strong>履歴</strong><button id="closeHistory">閉じる</button></div>
+      <div class="historyLayout">
+        <div id="historyList" class="historyList"></div>
+        <div>
+          <div class="compareCols">
+            <div>
+              <div class="muted">選択版</div>
+              <textarea id="historyPreview" readonly></textarea>
+            </div>
+            <div>
+              <div class="muted">現在版</div>
+              <textarea id="historyCurrent" readonly></textarea>
+            </div>
+          </div>
+          <div class="row" style="margin-top:8px;"><button id="restoreVersion">この版に復元</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="trashModal" class="modal" role="dialog" aria-modal="true">
+    <div class="modalCard">
+      <div class="modalHead"><strong>ゴミ箱</strong><button id="closeTrash">閉じる</button></div>
+      <div id="trashList" class="historyList"></div>
+    </div>
+  </div>
+
+  <div id="snackbar" class="snackbar"><span id="snackbarText"></span><button id="snackbarUndo">Undo</button></div>
+
   <script>
-    const STORAGE_KEYS = { localState: "mini_memos_state_v3", auth: "mini_memos_auth_v1", queue: "mini_memos_sync_queue_v1" };
+    const STORAGE_KEYS = { localState: "mini_memos_state_v4", auth: "mini_memos_auth_v1", queue: "mini_memos_sync_queue_v1" };
+    const HISTORY_LIMIT = 20;
+    const TRASH_RETENTION_MS = 1000 * 60 * 60 * 24 * 7;
 
     const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
     const now = () => Date.now();
 
     const normalizeNotebookId = (id) => (typeof id === "string" && id.trim() ? id.trim() : "default");
+    const normalizeHistory = (history) => Array.isArray(history)
+      ? history
+        .filter((h) => h && typeof h.savedAt === "number" && typeof h.text === "string")
+        .sort((a, b) => b.savedAt - a.savedAt)
+        .slice(0, HISTORY_LIMIT)
+      : [];
     const normalizeImported = (maybe) => Array.isArray(maybe)
       ? maybe.filter((m) => m && typeof m.id === "string" && typeof m.text === "string" && typeof m.updatedAt === "number").map((m) => ({
         id: m.id,
@@ -106,13 +159,24 @@
         pinned: Boolean(m.pinned),
         tags: Array.isArray(m.tags) ? m.tags.filter((t) => typeof t === "string").map((t) => t.trim()).filter(Boolean) : [],
         notebookId: normalizeNotebookId(m.notebookId),
+        history: normalizeHistory(m.history),
       }))
       : [];
+
+    const normalizeTrash = (maybe) => Array.isArray(maybe)
+      ? maybe.filter((t) => t && t.memo && typeof t.memo.id === "string" && typeof t.deletedAt === "number").map((t) => ({
+        memo: normalizeImported([t.memo])[0],
+        deletedAt: t.deletedAt,
+      })).filter((t) => t.memo)
+      : [];
+
+    const purgeExpiredTrash = (trash) => trash.filter((t) => (now() - t.deletedAt) < TRASH_RETENTION_MS);
 
     const stateSchema = (state) => {
       const memos = normalizeImported(state?.memos);
       const currentId = typeof state?.currentId === "string" ? state.currentId : (memos[0]?.id ?? null);
-      return { memos, currentId };
+      const trash = purgeExpiredTrash(normalizeTrash(state?.trash));
+      return { memos, currentId, trash };
     };
 
     const loadAuth = () => {
@@ -126,7 +190,7 @@
       name: "local",
       loadState() {
         try { return stateSchema(JSON.parse(localStorage.getItem(STORAGE_KEYS.localState) || "null")); }
-        catch { return { memos: [], currentId: null }; }
+        catch { return { memos: [], currentId: null, trash: [] }; }
       },
       saveState(state) { localStorage.setItem(STORAGE_KEYS.localState, JSON.stringify(stateSchema(state))); },
       upsertMemo(memo) {
@@ -148,9 +212,9 @@
     const cloudAdapter = {
       name: "cloud",
       loadState(auth) {
-        if (!auth?.loggedIn) return { memos: [], currentId: null };
+        if (!auth?.loggedIn) return { memos: [], currentId: null, trash: [] };
         try { return stateSchema(JSON.parse(localStorage.getItem(cloudKey(auth.id)) || "null")); }
-        catch { return { memos: [], currentId: null }; }
+        catch { return { memos: [], currentId: null, trash: [] }; }
       },
       saveState(state, auth) {
         if (!auth?.loggedIn) throw new Error("not_logged_in");
@@ -177,9 +241,12 @@
 
     let auth = loadAuth();
     let memos = [];
+    let trash = [];
     let currentId = null;
     let timer = null;
     let syncState = "idle";
+    let selectedHistorySavedAt = null;
+    let undoTimer = null;
     let queue = (() => { try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.queue) || "[]") || []; } catch { return []; } })();
 
     const $ = (id) => document.getElementById(id);
@@ -187,6 +254,9 @@
     const $pin = $("pin"); const $importFile = $("importFile"); const $charCount = $("charCount"); const $authLabel = $("authLabel");
     const $storageBadge = $("storageBadge"); const $syncStatus = $("syncStatus"); const $migrate = $("migrate");
     const $notebookFilter = $("notebookFilter"); const $tagFilter = $("tagFilter"); const $pinnedOnly = $("pinnedOnly");
+    const $historyModal = $("historyModal"); const $historyList = $("historyList"); const $historyPreview = $("historyPreview"); const $historyCurrent = $("historyCurrent");
+    const $trashModal = $("trashModal"); const $trashList = $("trashList");
+    const $snackbar = $("snackbar"); const $snackbarText = $("snackbarText"); const $snackbarUndo = $("snackbarUndo");
 
     const setStatus = (text, kind = "ok", ms = 1200) => { $status.textContent = text; $status.className = `status ${kind}`; if (ms > 0) setTimeout(() => { $status.textContent = ""; $status.className = "status"; }, ms); };
     const setSync = (state, detail = "") => {
@@ -196,6 +266,25 @@
     };
 
     const formatTime = (ms) => { const d = new Date(ms); const pad = (n) => String(n).padStart(2, "0"); return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+    const closeModal = (el) => el.classList.remove("isOpen");
+    const openModal = (el) => el.classList.add("isOpen");
+    const showUndoSnackbar = (message, onUndo) => {
+      clearTimeout(undoTimer);
+      $snackbarText.textContent = message;
+      $snackbar.classList.add("show");
+      $snackbarUndo.onclick = () => {
+        onUndo();
+        $snackbar.classList.remove("show");
+      };
+      undoTimer = setTimeout(() => { $snackbar.classList.remove("show"); }, 6000);
+    };
+
+    const appendHistorySnapshot = (memo, previousText) => {
+      if (typeof previousText !== "string" || previousText === memo.text) return;
+      memo.history = normalizeHistory([{ savedAt: now(), text: previousText }, ...(memo.history || [])]);
+    };
+
+    const getCurrentMemo = () => memos.find((x) => x.id === currentId);
     const titleOf = (text) => ((text ?? "").split("\n")[0].trim().slice(0, 30) || "（無題）");
     const sortMemos = (items) => [...items].sort((a, b) => (a.pinned !== b.pinned ? (a.pinned ? -1 : 1) : b.updatedAt - a.updatedAt));
     const selectedNotebookId = () => ($notebookFilter.value && $notebookFilter.value !== "all" ? $notebookFilter.value : "default");
@@ -224,7 +313,8 @@
     };
 
     const saveStateThroughAdapter = () => {
-      const state = { memos, currentId };
+      trash = purgeExpiredTrash(trash);
+      const state = { memos, currentId, trash };
       try {
         if (auth.loggedIn) {
           setSync("syncing");
@@ -266,19 +356,23 @@
     const loadInitialState = () => {
       const state = auth.loggedIn ? cloudAdapter.loadState(auth) : localAdapter.loadState();
       memos = state.memos;
+      trash = state.trash;
       currentId = state.currentId;
       if (memos.length === 0) {
         const id = uid();
-        memos = [{ id, text: "", updatedAt: now(), pinned: false, tags: [], notebookId: "default" }];
+        memos = [{ id, text: "", updatedAt: now(), pinned: false, tags: [], notebookId: "default", history: [] }];
         currentId = id;
         saveStateThroughAdapter();
       }
     };
 
     const saveCurrentMemo = () => {
-      const m = memos.find((x) => x.id === currentId);
+      const m = getCurrentMemo();
       if (!m) return;
+      const before = m.text;
       m.text = $editor.value;
+      if (before === m.text) return;
+      appendHistorySnapshot(m, before);
       m.updatedAt = now();
       if (auth.loggedIn) {
         try {
@@ -353,30 +447,112 @@
 
     const isoTs = () => new Date().toISOString().replaceAll(":", "-");
 
-    $("new").addEventListener("click", () => { const id = uid(); memos.push({ id, text: "", updatedAt: now(), pinned: false, tags: [], notebookId: selectedNotebookId() }); select(id); saveStateThroughAdapter(); });
+    const openHistory = () => {
+      const memo = getCurrentMemo();
+      if (!memo) return;
+      const history = memo.history || [];
+      $historyList.innerHTML = "";
+      if (!history.length) {
+        $historyList.innerHTML = '<div class="emptyState">履歴はまだありません。</div>';
+        $historyPreview.value = "";
+        $historyCurrent.value = memo.text;
+        openModal($historyModal);
+        return;
+      }
+      selectedHistorySavedAt = selectedHistorySavedAt && history.some((h) => h.savedAt === selectedHistorySavedAt) ? selectedHistorySavedAt : history[0].savedAt;
+      for (const h of history) {
+        const row = document.createElement("div");
+        row.className = `historyItem${h.savedAt === selectedHistorySavedAt ? " active" : ""}`;
+        row.innerHTML = `<div>${formatTime(h.savedAt)}</div><div class="muted">${titleOf(h.text)}</div>`;
+        row.addEventListener("click", () => { selectedHistorySavedAt = h.savedAt; openHistory(); });
+        $historyList.appendChild(row);
+      }
+      const selected = history.find((h) => h.savedAt === selectedHistorySavedAt) || history[0];
+      $historyPreview.value = selected.text;
+      $historyCurrent.value = memo.text;
+      openModal($historyModal);
+    };
+
+    const renderTrash = () => {
+      trash = purgeExpiredTrash(trash);
+      $trashList.innerHTML = "";
+      if (!trash.length) {
+        $trashList.innerHTML = '<div class="emptyState">ゴミ箱は空です。</div>';
+        return;
+      }
+      for (const t of [...trash].sort((a, b) => b.deletedAt - a.deletedAt)) {
+        const row = document.createElement("div");
+        row.className = "historyItem";
+        row.innerHTML = `<div><strong>${titleOf(t.memo.text)}</strong></div><div class="trashMeta">削除: ${formatTime(t.deletedAt)}（${Math.ceil((TRASH_RETENTION_MS - (now() - t.deletedAt)) / (1000 * 60 * 60 * 24))}日後に完全削除）</div>`;
+        const restoreBtn = document.createElement("button");
+        restoreBtn.textContent = "復元";
+        restoreBtn.addEventListener("click", () => {
+          trash = trash.filter((x) => x.memo.id !== t.memo.id);
+          memos.push(t.memo);
+          currentId = t.memo.id;
+          $editor.value = t.memo.text;
+          saveStateThroughAdapter();
+          render();
+          renderTrash();
+          showUndoSnackbar("復元しました", () => {
+            memos = memos.filter((x) => x.id !== t.memo.id);
+            trash.push(t);
+            if (!memos.length) {
+              const id = uid();
+              memos.push({ id, text: "", updatedAt: now(), pinned: false, tags: [], notebookId: selectedNotebookId(), history: [] });
+              currentId = id;
+            } else currentId = sortMemos(memos)[0].id;
+            $editor.value = getCurrentMemo()?.text || "";
+            saveStateThroughAdapter();
+            render();
+            renderTrash();
+          });
+        });
+        const purgeBtn = document.createElement("button");
+        purgeBtn.textContent = "完全削除";
+        purgeBtn.addEventListener("click", () => {
+          if (!confirm("このメモを完全削除します。元に戻せません。")) return;
+          const deleted = t;
+          trash = trash.filter((x) => x.memo.id !== t.memo.id);
+          saveStateThroughAdapter();
+          renderTrash();
+          showUndoSnackbar("完全削除しました", () => {
+            trash.push(deleted);
+            saveStateThroughAdapter();
+            renderTrash();
+          });
+        });
+        row.appendChild(document.createElement("div")).className = "row";
+        row.lastElementChild.append(restoreBtn, purgeBtn);
+        $trashList.appendChild(row);
+      }
+    };
+
+    $("new").addEventListener("click", () => { const id = uid(); memos.push({ id, text: "", updatedAt: now(), pinned: false, tags: [], notebookId: selectedNotebookId(), history: [] }); select(id); saveStateThroughAdapter(); });
     $("dup").addEventListener("click", () => {
       const m = memos.find((x) => x.id === currentId); if (!m) return;
       const id = uid();
-      memos.push({ id, text: m.text, updatedAt: now(), pinned: false, tags: [...(m.tags || [])], notebookId: selectedNotebookId() });
+      memos.push({ id, text: m.text, updatedAt: now(), pinned: false, tags: [...(m.tags || [])], notebookId: selectedNotebookId(), history: normalizeHistory(m.history || []) });
       select(id); saveStateThroughAdapter();
     });
     $("del").addEventListener("click", () => {
       const idx = memos.findIndex((x) => x.id === currentId); if (idx === -1) return;
-      if (!confirm("このメモを削除します。OK？")) return;
-      const deletedId = currentId;
-      memos.splice(idx, 1);
-      if (memos.length === 0) memos.push({ id: uid(), text: "", updatedAt: now(), pinned: false, tags: [], notebookId: selectedNotebookId() });
+      if (!confirm("このメモをゴミ箱へ移動します。OK？")) return;
+      const [removed] = memos.splice(idx, 1);
+      trash.unshift({ memo: removed, deletedAt: now() });
+      trash = purgeExpiredTrash(trash);
+      if (!memos.length) {
+        const id = uid();
+        memos.push({ id, text: "", updatedAt: now(), pinned: false, tags: [], notebookId: selectedNotebookId(), history: [] });
+      }
       currentId = sortMemos(memos)[0].id;
-      $editor.value = memos.find((x) => x.id === currentId)?.text ?? "";
-      if (auth.loggedIn) {
-        try { cloudAdapter.deleteMemo(deletedId, auth); setSync("idle"); }
-        catch (e) { if (String(e.message).includes("offline")) { enqueue({ type: "delete", id: deletedId, at: now() }); localAdapter.deleteMemo(deletedId); } }
-      } else localAdapter.deleteMemo(deletedId);
+      $editor.value = getCurrentMemo()?.text ?? "";
       saveStateThroughAdapter();
       render();
+      renderTrash();
     });
 
-    $pin.addEventListener("click", () => { const m = memos.find((x) => x.id === currentId); if (!m) return; m.pinned = !m.pinned; m.updatedAt = now(); saveCurrentMemo(); });
+    $pin.addEventListener("click", () => { const m = memos.find((x) => x.id === currentId); if (!m) return; m.pinned = !m.pinned; m.updatedAt = now(); saveStateThroughAdapter(); render(); });
     $editor.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(saveCurrentMemo, 300); updateCharCount(); });
     $editor.addEventListener("blur", () => { clearTimeout(timer); saveCurrentMemo(); });
     $search.addEventListener("input", render);
@@ -384,7 +560,37 @@
     $tagFilter.addEventListener("input", render);
     $pinnedOnly.addEventListener("change", render);
 
-    $("exportJson").addEventListener("click", () => { download(`mini-memos-${isoTs()}.json`, JSON.stringify({ version: 5, exportedAt: Date.now(), memos }, null, 2), "application/json;charset=utf-8"); setStatus("JSONを書き出しました"); });
+
+    $("viewHistory").addEventListener("click", openHistory);
+    $("closeHistory").addEventListener("click", () => closeModal($historyModal));
+    $("openTrash").addEventListener("click", () => { renderTrash(); openModal($trashModal); });
+    $("closeTrash").addEventListener("click", () => closeModal($trashModal));
+
+    $("restoreVersion").addEventListener("click", () => {
+      const memo = getCurrentMemo();
+      if (!memo || !selectedHistorySavedAt) return;
+      const selected = (memo.history || []).find((h) => h.savedAt === selectedHistorySavedAt);
+      if (!selected) return;
+      if (!confirm(`履歴版 (${formatTime(selected.savedAt)}) に復元しますか？`)) return;
+      const currentText = memo.text;
+      memo.text = selected.text;
+      memo.updatedAt = now();
+      appendHistorySnapshot(memo, currentText);
+      $editor.value = memo.text;
+      saveStateThroughAdapter();
+      render();
+      openHistory();
+      showUndoSnackbar("履歴から復元しました", () => {
+        memo.text = currentText;
+        memo.updatedAt = now();
+        saveStateThroughAdapter();
+        $editor.value = memo.text;
+        render();
+        openHistory();
+      });
+    });
+
+    $("exportJson").addEventListener("click", () => { download(`mini-memos-${isoTs()}.json`, JSON.stringify({ version: 6, exportedAt: Date.now(), memos, trash }, null, 2), "application/json;charset=utf-8"); setStatus("JSONを書き出しました"); });
     $("exportMd").addEventListener("click", () => {
       const md = sortMemos(memos).map((m) => `## ${titleOf(m.text)}\nUpdatedAt: ${formatTime(m.updatedAt)}\nNotebook: ${normalizeNotebookId(m.notebookId)}\nTags: ${(m.tags || []).join(", ")}\n\n${m.text}\n`).join("\n---\n\n");
       download(`mini-memos-${isoTs()}.md`, `# ミニメモ\n\n${md}`, "text/markdown;charset=utf-8");
@@ -398,12 +604,16 @@
         const obj = JSON.parse(await file.text());
         const imported = normalizeImported(obj?.memos);
         if (imported.length === 0) throw new Error("有効なメモが0件です");
-        if (!confirm(`${imported.length}件をインポートし、現在データを上書きします。よろしいですか？`)) return;
+        const keepHistory = confirm("インポート時に既存履歴を保持しますか？\nOK: 保持 / キャンセル: 破棄");
+        const confirmText = prompt(`現在${memos.length}件を上書きします。実行するには IMPORT と入力してください。\n対象: ${imported.length}件`);
+        if (confirmText !== "IMPORT") return setStatus("インポートを中止しました", "warn", 1600);
+        if (!keepHistory) imported.forEach((m) => { m.history = []; });
         memos = imported;
+        trash = [];
         currentId = sortMemos(memos)[0].id;
         $editor.value = memos.find((x) => x.id === currentId)?.text ?? "";
-        saveStateThroughAdapter(); render(); setStatus("インポートしました");
-      } catch (e) { setStatus(`インポート失敗: ${e.message ?? e}`, "err", 2000); }
+        saveStateThroughAdapter(); render(); setStatus(`インポートしました（履歴:${keepHistory ? "保持" : "破棄"}）`);
+      } catch (e) { setStatus(`インポート失敗: ${e.message ?? e}`, "err", 2200); }
       finally { $importFile.value = ""; }
     });
 
@@ -419,7 +629,7 @@
       if (!confirm(msg)) return;
       try {
         cloudAdapter.saveState(local, auth);
-        memos = local.memos; currentId = local.currentId;
+        memos = local.memos; trash = local.trash || []; currentId = local.currentId;
         select(currentId || memos[0]?.id);
         setStatus("クラウド移行が完了しました", "ok", 1600);
         setSync("idle");
@@ -443,7 +653,8 @@
       if (remote.memos.length === 0 && local.memos.length > 0) {
         setStatus("初回ログイン: ローカル→クラウド移行できます", "warn", 2200);
       }
-      memos = remote.memos.length ? remote.memos : [{ id: uid(), text: "", updatedAt: now(), pinned: false, tags: [], notebookId: "default" }];
+      memos = remote.memos.length ? remote.memos : [{ id: uid(), text: "", updatedAt: now(), pinned: false, tags: [], notebookId: "default", history: [] }];
+      trash = remote.trash || [];
       currentId = remote.currentId || memos[0].id;
       processQueue();
       select(currentId);
@@ -456,8 +667,8 @@
     $("logout").addEventListener("click", () => {
       clearTimeout(timer); saveCurrentMemo();
       auth = { loggedIn: false }; saveAuth(auth); updateTopbar();
-      const local = localAdapter.loadState(); memos = local.memos; currentId = local.currentId;
-      if (!memos.length) { const id = uid(); memos = [{ id, text: "", updatedAt: now(), pinned: false, tags: [], notebookId: "default" }]; currentId = id; localAdapter.saveState({ memos, currentId }); }
+      const local = localAdapter.loadState(); memos = local.memos; trash = local.trash || []; currentId = local.currentId;
+      if (!memos.length) { const id = uid(); memos = [{ id, text: "", updatedAt: now(), pinned: false, tags: [], notebookId: "default", history: [] }]; currentId = id; localAdapter.saveState({ memos, currentId, trash }); }
       select(currentId); render();
     });
 

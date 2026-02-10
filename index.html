@@ -4,770 +4,433 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>ミニメモ（複数）</title>
-
-  <!-- Optional: nicer mono font for timestamps (safe fallback) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-
   <style>
-    :root{
-      --bg0: #070A12;
-      --bg1: #0B1020;
-      --panel: rgba(255,255,255,.06);
-      --panel2: rgba(255,255,255,.08);
-      --stroke: rgba(255,255,255,.10);
-      --stroke2: rgba(255,255,255,.14);
-      --text: rgba(255,255,255,.92);
-      --muted: rgba(255,255,255,.62);
-      --muted2: rgba(255,255,255,.48);
-
-      --accent: #7C5CFF;
-      --accent2:#2DE2E6;
-
-      --shadow: 0 10px 30px rgba(0,0,0,.35);
-      --radius: 16px;
-      --radius2: 22px;
-    }
-
-    *{ box-sizing:border-box; }
-    html, body { height: 100%; }
-    body{
-      margin: 0;
-      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-      color: var(--text);
-      background:
-        radial-gradient(1200px 600px at 10% 10%, rgba(124,92,255,.22), transparent 50%),
-        radial-gradient(900px 520px at 90% 30%, rgba(45,226,230,.16), transparent 55%),
-        radial-gradient(800px 520px at 40% 90%, rgba(124,92,255,.12), transparent 60%),
-        linear-gradient(180deg, var(--bg0), var(--bg1));
-      padding: 18px;
-    }
-
-    .topbar{
-      display:flex;
-      align-items:flex-end;
-      justify-content:space-between;
-      gap: 12px;
-      margin: 2px 0 14px;
-    }
-    h1{
-      font-size: 14px;
-      font-weight: 700;
-      letter-spacing: .2px;
-      margin: 0;
-      color: rgba(255,255,255,.86);
-    }
-    .subtitle{
-      font-size: 12px;
-      color: var(--muted2);
-      margin-top: 4px;
-      line-height: 1.25;
-    }
-
-    .badge{
-      display:inline-flex;
-      align-items:center;
-      gap:8px;
-      padding: 8px 12px;
-      border-radius: 999px;
-      background: rgba(255,255,255,.06);
-      border: 1px solid rgba(255,255,255,.10);
-      backdrop-filter: blur(10px);
-      box-shadow: 0 8px 20px rgba(0,0,0,.25);
-      font-size: 12px;
-      color: var(--muted);
-      white-space: nowrap;
-    }
-    .dot{
-      width:8px; height:8px; border-radius:999px;
-      background: linear-gradient(135deg, var(--accent), var(--accent2));
-      box-shadow: 0 0 0 3px rgba(124,92,255,.18);
-    }
-
-    .app{
-      display:grid;
-      grid-template-columns: 380px 1fr;
-      gap: 14px;
-      align-items: start;
-    }
-    @media (max-width: 860px){
-      .app{ grid-template-columns: 1fr; }
-      body{ padding: 14px; }
-    }
-
-    .panel{
-      background: var(--panel);
-      border: 1px solid var(--stroke);
-      border-radius: var(--radius2);
-      padding: 12px;
-      box-shadow: var(--shadow);
-      backdrop-filter: blur(12px);
-    }
-
-    .row{
-      display:flex;
-      gap:8px;
-      align-items:center;
-      flex-wrap: wrap;
-    }
-
-    /* Buttons */
-    button{
-      appearance: none;
-      border: 1px solid rgba(255,255,255,.12);
-      background: rgba(255,255,255,.06);
-      color: var(--text);
-      padding: 10px 11px;
-      font-size: 13px;
-      border-radius: 12px;
-      cursor: pointer;
-      transition: transform .06s ease, background .2s ease, border-color .2s ease, box-shadow .2s ease;
-      user-select: none;
-    }
-    button:hover{
-      background: rgba(255,255,255,.09);
-      border-color: rgba(255,255,255,.18);
-    }
-    button:active{ transform: translateY(1px); }
-    button:focus-visible{
-      outline: none;
-      box-shadow:
-        0 0 0 3px rgba(124,92,255,.25),
-        0 0 0 1px rgba(255,255,255,.12) inset;
-      border-color: rgba(124,92,255,.45);
-    }
-
-    /* Primary button for New */
-    #new{
-      background: linear-gradient(135deg, rgba(124,92,255,.95), rgba(45,226,230,.80));
-      border-color: rgba(255,255,255,.14);
-      color: #070A12;
-      font-weight: 800;
-    }
-    #new:hover{ filter: brightness(1.03); }
-
-    /* Danger */
-    #del{
-      background: rgba(255,255,255,.05);
-      border-color: rgba(255,255,255,.12);
-    }
-    #del:hover{
-      border-color: rgba(255,90,90,.35);
-      box-shadow: 0 0 0 3px rgba(255,90,90,.12);
-    }
-    #pin{
-      background: rgba(255,255,255,.06);
-      border-color: rgba(255,255,255,.12);
-    }
-    #pin.isPinned{
-      background: linear-gradient(135deg, rgba(124,92,255,.28), rgba(45,226,230,.22));
-      border-color: rgba(124,92,255,.4);
-      color: #EDE9FE;
-      box-shadow: 0 0 0 2px rgba(124,92,255,.12) inset;
-    }
-
-    /* Inputs */
-    input[type="search"]{
-      width: 100%;
-      padding: 11px 12px;
-      border-radius: 14px;
-      border: 1px solid rgba(255,255,255,.12);
-      background: rgba(0,0,0,.18);
-      color: var(--text);
-      font-size: 14px;
-      transition: border-color .2s ease, box-shadow .2s ease, background .2s ease;
-      outline: none;
-    }
-    input[type="search"]::placeholder{ color: rgba(255,255,255,.38); }
-    input[type="search"]:focus{
-      border-color: rgba(124,92,255,.55);
-      box-shadow: 0 0 0 3px rgba(124,92,255,.18);
-      background: rgba(0,0,0,.22);
-    }
-
-    .muted{
-      color: var(--muted2);
-      font-size: 12px;
-    }
-    .count{
-      margin-left:auto;
-      font-size: 12px;
-      color: var(--muted);
-      font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    }
-
-    /* List */
-    .list{
-      margin-top: 10px;
-      display:flex;
-      flex-direction:column;
-      gap: 8px;
-      max-height: 62vh;
-      overflow:auto;
-      padding-right: 4px;
-      scroll-behavior: smooth;
-    }
-    .list::-webkit-scrollbar{ width: 10px; }
-    .list::-webkit-scrollbar-thumb{
-      background: rgba(255,255,255,.12);
-      border-radius: 999px;
-      border: 2px solid rgba(0,0,0,.10);
-    }
-    .item{
-      border: 1px solid rgba(255,255,255,.10);
-      border-radius: var(--radius);
-      padding: 10px 10px;
-      cursor: pointer;
-      background: rgba(255,255,255,.04);
-      transition: transform .06s ease, border-color .2s ease, background .2s ease, box-shadow .2s ease;
-      position: relative;
-    }
-    .itemHeader{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap: 8px;
-    }
-    .pinMark{
-      font-size: 12px;
-      color: rgba(255,255,255,.55);
-    }
-    .item.pinned .pinMark{
-      color: rgba(255,214,102,.95);
-      text-shadow: 0 0 10px rgba(255,214,102,.3);
-    }
-    .item:hover{
-      background: rgba(255,255,255,.06);
-      border-color: rgba(255,255,255,.16);
-    }
-    .item:active{ transform: translateY(1px); }
-
-    .item.active{
-      border-color: rgba(124,92,255,.55);
-      box-shadow:
-        0 0 0 3px rgba(124,92,255,.18),
-        0 10px 25px rgba(0,0,0,.28);
-      background:
-        linear-gradient(180deg, rgba(124,92,255,.14), rgba(255,255,255,.04));
-    }
-    .item.active::before{
-      content:"";
-      position:absolute;
-      left: 10px; top: 10px; bottom: 10px;
-      width: 4px;
-      border-radius: 999px;
-      background: linear-gradient(180deg, var(--accent), var(--accent2));
-      opacity: .9;
-    }
-    .item.active .title, .item.active .meta{ padding-left: 10px; }
-
-    .title{
-      font-size: 13px;
-      font-weight: 750;
-      margin-bottom: 3px;
-      letter-spacing: .15px;
-    }
-    .meta{
-      font-size: 11px;
-      color: var(--muted2);
-      font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    }
-    .emptyState{
-      border: 1px dashed rgba(255,255,255,.16);
-      border-radius: var(--radius);
-      padding: 16px;
-      text-align: center;
-      color: var(--muted2);
-      font-size: 12px;
-      background: rgba(255,255,255,.04);
-    }
-
-    /* Editor */
-    textarea{
-      width:100%;
-      min-height: 70vh;
-      padding: 14px 14px;
-      font-size: 16px;
-      line-height: 1.6;
-      border-radius: var(--radius2);
-      border: 1px solid rgba(255,255,255,.12);
-      background: rgba(0,0,0,.18);
-      color: var(--text);
-      outline: none;
-      transition: border-color .2s ease, box-shadow .2s ease, background .2s ease;
-      resize: vertical;
-    }
-    textarea::placeholder{ color: rgba(255,255,255,.38); }
-    textarea:focus{
-      border-color: rgba(45,226,230,.55);
-      box-shadow: 0 0 0 3px rgba(45,226,230,.14);
-      background: rgba(0,0,0,.22);
-    }
-
-    /* Status pill */
-    .status{
-      margin-left:auto;
-      font-size: 12px;
-      padding: 6px 10px;
-      border-radius: 999px;
-      border: 1px solid rgba(255,255,255,.10);
-      background: rgba(255,255,255,.05);
-      color: var(--muted);
-      min-height: 26px;
-      display:inline-flex;
-      align-items:center;
-      gap: 8px;
-    }
-    .status:empty{
-      border-color: transparent;
-      background: transparent;
-      padding: 0;
-      min-height: 0;
-    }
-    .ok  { color:#6EE7A8; border-color: rgba(110,231,168,.25); background: rgba(110,231,168,.08); }
-    .warn{ color:#FBBF24; border-color: rgba(251,191,36,.25);  background: rgba(251,191,36,.08); }
-    .err { color:#F87171; border-color: rgba(248,113,113,.25); background: rgba(248,113,113,.08); }
-
-    kbd{
-      display:inline-block;
-      padding: 2px 6px;
-      border-radius: 6px;
-      border: 1px solid rgba(255,255,255,.15);
-      background: rgba(255,255,255,.08);
-      font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      font-size: 11px;
-    }
-    .charCount{
-      margin-top: 8px;
-      font-size: 12px;
-      color: var(--muted2);
-      font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      text-align: right;
-    }
-
-    /* Small polish */
-    .panelHeader{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap: 10px;
-      margin-bottom: 10px;
-    }
-    .panelTitle{
-      font-size: 12px;
-      color: rgba(255,255,255,.78);
-      font-weight: 700;
-      letter-spacing: .2px;
-    }
+    :root{--bg0:#070A12;--bg1:#0B1020;--panel:rgba(255,255,255,.06);--panel2:rgba(255,255,255,.08);--stroke:rgba(255,255,255,.10);--stroke2:rgba(255,255,255,.14);--text:rgba(255,255,255,.92);--muted:rgba(255,255,255,.62);--muted2:rgba(255,255,255,.48);--accent:#7C5CFF;--accent2:#2DE2E6;--shadow:0 10px 30px rgba(0,0,0,.35);--radius:16px;--radius2:22px}
+    *{box-sizing:border-box} html,body{height:100%}
+    body{margin:0;font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--text);background:radial-gradient(1200px 600px at 10% 10%, rgba(124,92,255,.22), transparent 50%),radial-gradient(900px 520px at 90% 30%, rgba(45,226,230,.16), transparent 55%),radial-gradient(800px 520px at 40% 90%, rgba(124,92,255,.12), transparent 60%),linear-gradient(180deg, var(--bg0), var(--bg1));padding:18px}
+    .topbar{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin:2px 0 14px;flex-wrap:wrap}
+    h1{font-size:14px;font-weight:700;letter-spacing:.2px;margin:0;color:rgba(255,255,255,.86)}
+    .subtitle{font-size:12px;color:var(--muted2);margin-top:4px;line-height:1.25}
+    .topRight{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+    .badge{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.10);backdrop-filter:blur(10px);box-shadow:0 8px 20px rgba(0,0,0,.25);font-size:12px;color:var(--muted);white-space:nowrap}
+    .dot{width:8px;height:8px;border-radius:999px;background:linear-gradient(135deg,var(--accent),var(--accent2));box-shadow:0 0 0 3px rgba(124,92,255,.18)}
+    .authBox{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+    .authLabel{font-size:11px;color:var(--muted2)}
+    .app{display:grid;grid-template-columns:380px 1fr;gap:14px;align-items:start}
+    @media (max-width:860px){.app{grid-template-columns:1fr}body{padding:14px}}
+    .panel{background:var(--panel);border:1px solid var(--stroke);border-radius:var(--radius2);padding:12px;box-shadow:var(--shadow);backdrop-filter:blur(12px)}
+    .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    button{appearance:none;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:var(--text);padding:10px 11px;font-size:13px;border-radius:12px;cursor:pointer;transition:transform .06s ease, background .2s ease, border-color .2s ease, box-shadow .2s ease;user-select:none}
+    button:hover{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.18)} button:active{transform:translateY(1px)}
+    #new{background:linear-gradient(135deg, rgba(124,92,255,.95), rgba(45,226,230,.80));border-color:rgba(255,255,255,.14);color:#070A12;font-weight:800}
+    #new:hover{filter:brightness(1.03)}
+    #pin.isPinned{background:linear-gradient(135deg, rgba(124,92,255,.28), rgba(45,226,230,.22));border-color:rgba(124,92,255,.4);color:#EDE9FE;box-shadow:0 0 0 2px rgba(124,92,255,.12) inset}
+    input[type="search"]{width:100%;padding:11px 12px;border-radius:14px;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.18);color:var(--text);font-size:14px;outline:none}
+    .muted{color:var(--muted2);font-size:12px}.count{margin-left:auto;font-size:12px;color:var(--muted);font-family:"JetBrains Mono",monospace}
+    .list{margin-top:10px;display:flex;flex-direction:column;gap:8px;max-height:62vh;overflow:auto;padding-right:4px}
+    .item{border:1px solid rgba(255,255,255,.10);border-radius:var(--radius);padding:10px;cursor:pointer;background:rgba(255,255,255,.04);position:relative}
+    .itemHeader{display:flex;align-items:center;justify-content:space-between;gap:8px}
+    .item.active{border-color:rgba(124,92,255,.55);box-shadow:0 0 0 3px rgba(124,92,255,.18),0 10px 25px rgba(0,0,0,.28)}
+    .title{font-size:13px;font-weight:750;margin-bottom:3px}.meta{font-size:11px;color:var(--muted2);font-family:"JetBrains Mono",monospace}
+    .emptyState{border:1px dashed rgba(255,255,255,.16);border-radius:var(--radius);padding:16px;text-align:center;color:var(--muted2);font-size:12px;background:rgba(255,255,255,.04)}
+    textarea{width:100%;min-height:70vh;padding:14px;font-size:16px;line-height:1.6;border-radius:var(--radius2);border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.18);color:var(--text);outline:none;resize:vertical}
+    .status{margin-left:auto;font-size:12px;padding:6px 10px;border-radius:999px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.05);color:var(--muted);display:inline-flex;align-items:center;gap:8px}
+    .ok{color:#6EE7A8;border-color:rgba(110,231,168,.25);background:rgba(110,231,168,.08)} .warn{color:#FBBF24;border-color:rgba(251,191,36,.25);background:rgba(251,191,36,.08)} .err{color:#F87171;border-color:rgba(248,113,113,.25);background:rgba(248,113,113,.08)}
+    .syncPill{font-size:12px;padding:6px 10px;border-radius:999px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.05)}
+    .charCount{margin-top:8px;font-size:12px;color:var(--muted2);font-family:"JetBrains Mono",monospace;text-align:right}
+    .panelHeader{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
+    .panelTitle{font-size:12px;color:rgba(255,255,255,.78);font-weight:700}
   </style>
 </head>
-
 <body>
   <div class="topbar">
     <div>
       <h1>ミニメモ</h1>
-      <div class="subtitle">複数 / 自動保存 / JSON & Markdown / 文字化け対策</div>
+      <div class="subtitle">複数 / 自動保存 / JSON & Markdown / ストレージアダプタ対応</div>
     </div>
-    <div class="badge" title="保存先">
-      <span class="dot"></span>
-      <span>localStorage（このブラウザ）</span>
+    <div class="topRight">
+      <div id="storageBadge" class="badge" title="保存先"><span class="dot"></span><span>localStorage</span></div>
+      <div id="syncStatus" class="syncPill">同期: 未接続</div>
+      <div class="authBox">
+        <span id="authLabel" class="authLabel">未ログイン</span>
+        <button id="loginEmail">Email</button>
+        <button id="loginGoogle">Google</button>
+        <button id="loginApple">Apple</button>
+        <button id="logout">ログアウト</button>
+      </div>
     </div>
   </div>
 
   <div class="app">
     <div class="panel">
-      <div class="panelHeader">
-        <div class="panelTitle">Memos</div>
-        <div id="count" class="count"></div>
-      </div>
-
+      <div class="panelHeader"><div class="panelTitle">Memos</div><div id="count" class="count"></div></div>
       <div class="row" style="margin-bottom:10px;">
-        <button id="new">＋ 新規</button>
-        <button id="dup">複製</button>
-        <button id="del">削除</button>
-        <button id="pin">ピン留め</button>
-        <button id="exportJson">JSON</button>
-        <button id="exportMd">MD</button>
-        <button id="import">インポート</button>
-        <input id="importFile" type="file" accept="application/json" hidden />
-        <span id="status" class="status"></span>
+        <button id="new">＋ 新規</button><button id="dup">複製</button><button id="del">削除</button><button id="pin">ピン留め</button>
+        <button id="exportJson">JSON</button><button id="exportMd">MD</button><button id="import">インポート</button><button id="migrate">ローカル→クラウド移行</button>
+        <input id="importFile" type="file" accept="application/json" hidden /><span id="status" class="status"></span>
       </div>
-
       <input id="search" type="search" placeholder="検索（タイトル/本文）" />
-
-      <div class="row" style="margin-top:8px;">
-        <div class="muted">Tips: 先頭1行がタイトルになります</div>
-      </div>
-
+      <div class="row" style="margin-top:8px;"><div class="muted">Tips: 先頭1行がタイトルになります</div></div>
       <div id="list" class="list"></div>
     </div>
-
     <div class="panel">
-      <div class="panelHeader">
-        <div class="panelTitle">Editor</div>
-        <div id="shortcutHint" class="muted" style="margin-left:auto;">自動保存: 300ms ｜ <kbd>Ctrl+N</kbd>/<kbd>⌘N</kbd> 新規 ｜ <kbd>Ctrl+D</kbd>/<kbd>⌘D</kbd> 複製 ｜ <kbd>Ctrl+E</kbd>/<kbd>⌘E</kbd> JSON出力</div>
-      </div>
+      <div class="panelHeader"><div class="panelTitle">Editor</div><div id="shortcutHint" class="muted">自動保存: 300ms</div></div>
       <textarea id="editor" placeholder="メモ本文…（先頭1行がタイトルになります）"></textarea>
       <div id="charCount" class="charCount"></div>
     </div>
   </div>
 
   <script>
-    const KEY = "mini_memos_v2"; // 仕様変更したので v2 に（旧版と共存させたい場合）
+    const STORAGE_KEYS = { localState: "mini_memos_state_v3", auth: "mini_memos_auth_v1", queue: "mini_memos_sync_queue_v1" };
 
-    /** @type {{id:string, text:string, updatedAt:number, pinned:boolean}[]} */
+    const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    const now = () => Date.now();
+
+    const normalizeImported = (maybe) => Array.isArray(maybe)
+      ? maybe.filter((m) => m && typeof m.id === "string" && typeof m.text === "string" && typeof m.updatedAt === "number").map((m) => ({ id: m.id, text: m.text, updatedAt: m.updatedAt, pinned: Boolean(m.pinned) }))
+      : [];
+
+    const stateSchema = (state) => {
+      const memos = normalizeImported(state?.memos);
+      const currentId = typeof state?.currentId === "string" ? state.currentId : (memos[0]?.id ?? null);
+      return { memos, currentId };
+    };
+
+    const loadAuth = () => {
+      try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.auth) || "null") || { loggedIn: false }; }
+      catch { return { loggedIn: false }; }
+    };
+
+    const saveAuth = (auth) => localStorage.setItem(STORAGE_KEYS.auth, JSON.stringify(auth));
+
+    const localAdapter = {
+      name: "local",
+      loadState() {
+        try { return stateSchema(JSON.parse(localStorage.getItem(STORAGE_KEYS.localState) || "null")); }
+        catch { return { memos: [], currentId: null }; }
+      },
+      saveState(state) { localStorage.setItem(STORAGE_KEYS.localState, JSON.stringify(stateSchema(state))); },
+      upsertMemo(memo) {
+        const state = this.loadState();
+        const idx = state.memos.findIndex((m) => m.id === memo.id);
+        if (idx >= 0) state.memos[idx] = memo; else state.memos.push(memo);
+        state.currentId = memo.id;
+        this.saveState(state);
+      },
+      deleteMemo(id) {
+        const state = this.loadState();
+        state.memos = state.memos.filter((m) => m.id !== id);
+        if (state.currentId === id) state.currentId = state.memos[0]?.id ?? null;
+        this.saveState(state);
+      },
+    };
+
+    const cloudKey = (userId) => `mini_memos_cloud_${userId}`;
+    const cloudAdapter = {
+      name: "cloud",
+      loadState(auth) {
+        if (!auth?.loggedIn) return { memos: [], currentId: null };
+        try { return stateSchema(JSON.parse(localStorage.getItem(cloudKey(auth.id)) || "null")); }
+        catch { return { memos: [], currentId: null }; }
+      },
+      saveState(state, auth) {
+        if (!auth?.loggedIn) throw new Error("not_logged_in");
+        if (!navigator.onLine) throw new Error("offline");
+        localStorage.setItem(cloudKey(auth.id), JSON.stringify(stateSchema(state)));
+      },
+      upsertMemo(memo, auth) {
+        const state = this.loadState(auth);
+        const idx = state.memos.findIndex((m) => m.id === memo.id);
+        if (idx >= 0) {
+          const serverMemo = state.memos[idx];
+          state.memos[idx] = serverMemo.updatedAt > memo.updatedAt ? serverMemo : memo; // latest-wins
+        } else state.memos.push(memo);
+        state.currentId = memo.id;
+        this.saveState(state, auth);
+      },
+      deleteMemo(id, auth) {
+        const state = this.loadState(auth);
+        state.memos = state.memos.filter((m) => m.id !== id);
+        if (state.currentId === id) state.currentId = state.memos[0]?.id ?? null;
+        this.saveState(state, auth);
+      },
+    };
+
+    let auth = loadAuth();
     let memos = [];
     let currentId = null;
     let timer = null;
+    let syncState = "idle";
+    let queue = (() => { try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.queue) || "[]") || []; } catch { return []; } })();
 
-    const $list = document.getElementById("list");
-    const $editor = document.getElementById("editor");
-    const $status = document.getElementById("status");
-    const $count = document.getElementById("count");
-    const $search = document.getElementById("search");
+    const $ = (id) => document.getElementById(id);
+    const $list = $("list"); const $editor = $("editor"); const $status = $("status"); const $count = $("count"); const $search = $("search");
+    const $pin = $("pin"); const $importFile = $("importFile"); const $charCount = $("charCount"); const $authLabel = $("authLabel");
+    const $storageBadge = $("storageBadge"); const $syncStatus = $("syncStatus"); const $migrate = $("migrate");
 
-    const $new = document.getElementById("new");
-    const $dup = document.getElementById("dup");
-    const $del = document.getElementById("del");
-    const $exportJson = document.getElementById("exportJson");
-    const $exportMd = document.getElementById("exportMd");
-    const $import = document.getElementById("import");
-    const $importFile = document.getElementById("importFile");
-    const $charCount = document.getElementById("charCount");
-    const $pin = document.getElementById("pin");
-    const $shortcutHint = document.getElementById("shortcutHint");
-
-    const uid = () => (crypto?.randomUUID?.() ?? String(Date.now()) + Math.random().toString(16).slice(2));
-    const now = () => Date.now();
-    const isMac = navigator.platform.toLowerCase().includes("mac");
-
-    if ($shortcutHint) {
-      const mod = isMac ? "⌘" : "Ctrl+";
-      $shortcutHint.innerHTML = `自動保存: 300ms ｜ <kbd>${mod}N</kbd> 新規 ｜ <kbd>${mod}D</kbd> 複製 ｜ <kbd>${mod}E</kbd> JSON出力`;
-    }
-
-    const setStatus = (text, kind = "ok", ms = 1000) => {
-      $status.textContent = text;
-      $status.className = `status ${kind}`;
-      if (ms > 0) setTimeout(() => { $status.textContent = ""; $status.className = "status"; }, ms);
+    const setStatus = (text, kind = "ok", ms = 1200) => { $status.textContent = text; $status.className = `status ${kind}`; if (ms > 0) setTimeout(() => { $status.textContent = ""; $status.className = "status"; }, ms); };
+    const setSync = (state, detail = "") => {
+      syncState = state;
+      const labels = { idle: "同期: 完了", syncing: "同期: 同期中", failed: "同期: 失敗", queued: "同期: オフライン待機" };
+      $syncStatus.textContent = detail ? `${labels[state]} (${detail})` : labels[state];
     };
 
-    const formatTime = (ms) => {
-      const d = new Date(ms);
-      const pad = (n) => String(n).padStart(2, "0");
-      return `${d.getFullYear()}/${pad(d.getMonth()+1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    const formatTime = (ms) => { const d = new Date(ms); const pad = (n) => String(n).padStart(2, "0"); return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+    const titleOf = (text) => ((text ?? "").split("\n")[0].trim().slice(0, 30) || "（無題）");
+
+    const activeAdapter = () => (auth.loggedIn ? cloudAdapter : localAdapter);
+    const updateTopbar = () => {
+      $authLabel.textContent = auth.loggedIn ? `${auth.provider}: ${auth.email}` : "未ログイン";
+      $storageBadge.lastElementChild.textContent = auth.loggedIn ? "Cloud API（ログイン中）" : "localStorage（オフライン）";
+      $migrate.style.display = auth.loggedIn ? "inline-flex" : "none";
+      if (!auth.loggedIn) setSync("idle", "ローカル");
     };
 
-    const titleOf = (text) => {
-      const line = (text ?? "").split("\n")[0].trim();
-      return line.length ? line.slice(0, 30) : "（無題）";
+    const persistQueue = () => localStorage.setItem(STORAGE_KEYS.queue, JSON.stringify(queue));
+    const enqueue = (op) => { queue.push(op); persistQueue(); setSync("queued", `${queue.length}件`); };
+
+    const applyRemoteConflict = (remoteMemo) => {
+      const i = memos.findIndex((m) => m.id === remoteMemo.id);
+      if (i >= 0 && remoteMemo.updatedAt > memos[i].updatedAt) memos[i] = remoteMemo;
     };
 
-    const escapeHtml = (s) =>
-      s.replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;");
-
-    const normalizeImported = (maybe) => {
-      // 想定：[{id,text,updatedAt,pinned?}, ...]
-      if (!Array.isArray(maybe)) return [];
-      return maybe
-        .filter(m => m && typeof m.id === "string" && typeof m.text === "string" && typeof m.updatedAt === "number")
-        .map(m => ({ id: m.id, text: m.text, updatedAt: m.updatedAt, pinned: Boolean(m.pinned) }));
-    };
-
-    const safeSave = () => {
+    const saveStateThroughAdapter = () => {
+      const state = { memos, currentId };
       try {
-        localStorage.setItem(KEY, JSON.stringify(memos));
-        setStatus("保存しました", "ok", 900);
+        if (auth.loggedIn) {
+          setSync("syncing");
+          activeAdapter().saveState(state, auth);
+          setSync("idle");
+        } else {
+          activeAdapter().saveState(state);
+        }
         return true;
       } catch (e) {
-        setStatus("保存に失敗（容量不足？）", "err", 1800);
+        if (String(e.message).includes("offline")) {
+          enqueue({ type: "saveState", state, at: now() });
+          localAdapter.saveState(state);
+          return true;
+        }
+        setSync("failed");
         return false;
       }
     };
 
-    const saveCurrentMemo = () => {
-      const m = memos.find(x => x.id === currentId);
-      if (!m) return;
-      m.text = $editor.value;
-      m.updatedAt = now();
-      safeSave();
-      render();
+    const processQueue = () => {
+      if (!auth.loggedIn || !navigator.onLine || queue.length === 0) return;
+      setSync("syncing", `${queue.length}件`);
+      try {
+        while (queue.length) {
+          const op = queue.shift();
+          if (op.type === "saveState") cloudAdapter.saveState(op.state, auth);
+          if (op.type === "upsert") cloudAdapter.upsertMemo(op.memo, auth);
+          if (op.type === "delete") cloudAdapter.deleteMemo(op.id, auth);
+        }
+        persistQueue();
+        setSync("idle");
+      } catch {
+        persistQueue();
+        setSync("failed");
+      }
     };
 
-    const load = () => {
-      try {
-        const raw = localStorage.getItem(KEY);
-        memos = raw ? normalizeImported(JSON.parse(raw)) : [];
-      } catch {
-        memos = [];
-      }
+    const loadInitialState = () => {
+      const state = auth.loggedIn ? cloudAdapter.loadState(auth) : localAdapter.loadState();
+      memos = state.memos;
+      currentId = state.currentId;
       if (memos.length === 0) {
         const id = uid();
         memos = [{ id, text: "", updatedAt: now(), pinned: false }];
         currentId = id;
-        safeSave();
-      } else {
-        currentId = memos.sort((a,b)=>b.updatedAt-a.updatedAt)[0].id;
+        saveStateThroughAdapter();
       }
+    };
+
+    const saveCurrentMemo = () => {
+      const m = memos.find((x) => x.id === currentId);
+      if (!m) return;
+      m.text = $editor.value;
+      m.updatedAt = now();
+      if (auth.loggedIn) {
+        try {
+          setSync("syncing");
+          cloudAdapter.upsertMemo(m, auth);
+          const remote = cloudAdapter.loadState(auth).memos.find((x) => x.id === m.id);
+          if (remote) applyRemoteConflict(remote); // latest-wins 統合
+          setSync("idle");
+        } catch (e) {
+          if (String(e.message).includes("offline")) {
+            enqueue({ type: "upsert", memo: m, at: now() });
+            localAdapter.upsertMemo(m);
+          } else {
+            setSync("failed");
+          }
+        }
+      } else {
+        localAdapter.upsertMemo(m);
+      }
+      render();
     };
 
     const select = (id) => {
       currentId = id;
-      const m = memos.find(x => x.id === id);
+      const m = memos.find((x) => x.id === id);
       $editor.value = m ? m.text : "";
+      saveStateThroughAdapter();
       render();
       updatePinButton();
       $editor.focus();
-      // 選択中を見える位置へ（スマホで便利）
-      const el = document.querySelector(`.item[data-id="${CSS.escape(id)}"]`);
-      if (el) el.scrollIntoView({ block: "nearest" });
     };
 
     const filtered = () => {
       const q = ($search.value ?? "").trim().toLowerCase();
-      const sorted = [...memos].sort((a,b) => {
-        if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
-        return b.updatedAt - a.updatedAt;
-      });
+      const sorted = [...memos].sort((a, b) => (a.pinned !== b.pinned ? (a.pinned ? -1 : 1) : b.updatedAt - a.updatedAt));
       if (!q) return sorted;
-      return sorted.filter(m => (m.text ?? "").toLowerCase().includes(q) || titleOf(m.text).toLowerCase().includes(q));
+      return sorted.filter((m) => (m.text ?? "").toLowerCase().includes(q) || titleOf(m.text).toLowerCase().includes(q));
     };
 
     const render = () => {
       const items = filtered();
       $count.textContent = `表示: ${items.length} / 全: ${memos.length}`;
-
       $list.innerHTML = "";
-      if (items.length === 0) {
-        const empty = document.createElement("div");
-        empty.className = "emptyState";
-        empty.textContent = "該当するメモがありません。検索条件を変更してください。";
-        $list.appendChild(empty);
-        updatePinButton();
-        return;
-      }
+      if (items.length === 0) { const empty = document.createElement("div"); empty.className = "emptyState"; empty.textContent = "該当するメモがありません。"; $list.appendChild(empty); return; }
       for (const m of items) {
         const div = document.createElement("div");
-        div.className = "item" + (m.id === currentId ? " active" : "") + (m.pinned ? " pinned" : "");
+        div.className = `item${m.id === currentId ? " active" : ""}${m.pinned ? " pinned" : ""}`;
         div.dataset.id = m.id;
-        div.innerHTML = `
-          <div class="itemHeader">
-            <div class="title">${escapeHtml(titleOf(m.text))}</div>
-            <div class="pinMark" aria-hidden="true">${m.pinned ? "★" : "☆"}</div>
-          </div>
-          <div class="meta">${formatTime(m.updatedAt)}</div>
-        `;
+        div.innerHTML = `<div class="itemHeader"><div class="title">${titleOf(m.text)}</div><div>${m.pinned ? "★" : "☆"}</div></div><div class="meta">${formatTime(m.updatedAt)}</div>`;
         div.addEventListener("click", () => select(m.id));
         $list.appendChild(div);
       }
       updatePinButton();
     };
 
-    // ---- ダウンロード（文字化け対策：UTF-8 + charset + BOM） ----
-    const download = (filename, text, mime, addBom = true) => {
-      const bom = addBom ? "\uFEFF" : "";
-      const blob = new Blob([bom + text], { type: mime });
+    const download = (filename, text, mime) => {
+      const blob = new Blob(["\uFEFF" + text], { type: mime });
       const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      a.click();
+      const a = document.createElement("a"); a.href = url; a.download = filename; a.click();
       URL.revokeObjectURL(url);
     };
 
     const isoTs = () => new Date().toISOString().replaceAll(":", "-");
 
-    // ---- 操作 ----
-    $new.addEventListener("click", () => {
-      const id = uid();
-      memos.push({ id, text: "", updatedAt: now(), pinned: false });
-      select(id);
-      safeSave();
-    });
-
-    $dup.addEventListener("click", () => {
-      const m = memos.find(x => x.id === currentId);
-      if (!m) return;
-      const id = uid();
-      memos.push({
-        id,
-        text: m.text,
-        updatedAt: now(),
-        pinned: false,
-      });
-      select(id);
-      safeSave();
-      setStatus("メモを複製しました", "ok", 1000);
-    });
-
-    $del.addEventListener("click", () => {
-      const idx = memos.findIndex(x => x.id === currentId);
-      if (idx === -1) return;
+    $("new").addEventListener("click", () => { const id = uid(); memos.push({ id, text: "", updatedAt: now(), pinned: false }); select(id); saveStateThroughAdapter(); });
+    $("dup").addEventListener("click", () => { const m = memos.find((x) => x.id === currentId); if (!m) return; const id = uid(); memos.push({ id, text: m.text, updatedAt: now(), pinned: false }); select(id); saveStateThroughAdapter(); });
+    $("del").addEventListener("click", () => {
+      const idx = memos.findIndex((x) => x.id === currentId); if (idx === -1) return;
       if (!confirm("このメモを削除します。OK？")) return;
-
+      const deletedId = currentId;
       memos.splice(idx, 1);
-      if (memos.length === 0) {
-        const id = uid();
-        memos.push({ id, text: "", updatedAt: now(), pinned: false });
-      }
-      currentId = memos.sort((a,b)=>b.updatedAt-a.updatedAt)[0].id;
-      const m = memos.find(x => x.id === currentId);
-      $editor.value = m ? m.text : "";
-      safeSave();
+      if (memos.length === 0) memos.push({ id: uid(), text: "", updatedAt: now(), pinned: false });
+      currentId = [...memos].sort((a, b) => b.updatedAt - a.updatedAt)[0].id;
+      $editor.value = memos.find((x) => x.id === currentId)?.text ?? "";
+      if (auth.loggedIn) {
+        try { cloudAdapter.deleteMemo(deletedId, auth); setSync("idle"); }
+        catch (e) { if (String(e.message).includes("offline")) { enqueue({ type: "delete", id: deletedId, at: now() }); localAdapter.deleteMemo(deletedId); } }
+      } else localAdapter.deleteMemo(deletedId);
+      saveStateThroughAdapter();
       render();
     });
 
-    $pin.addEventListener("click", () => {
-      const m = memos.find(x => x.id === currentId);
-      if (!m) return;
-      m.pinned = !m.pinned;
-      m.updatedAt = now();
-      safeSave();
-      render();
+    $pin.addEventListener("click", () => { const m = memos.find((x) => x.id === currentId); if (!m) return; m.pinned = !m.pinned; m.updatedAt = now(); saveCurrentMemo(); });
+    $editor.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(saveCurrentMemo, 300); updateCharCount(); });
+    $editor.addEventListener("blur", () => { clearTimeout(timer); saveCurrentMemo(); });
+    $search.addEventListener("input", render);
+
+    $("exportJson").addEventListener("click", () => { download(`mini-memos-${isoTs()}.json`, JSON.stringify({ version: 4, exportedAt: Date.now(), memos }, null, 2), "application/json;charset=utf-8"); setStatus("JSONを書き出しました"); });
+    $("exportMd").addEventListener("click", () => {
+      const md = [...memos].sort((a, b) => b.updatedAt - a.updatedAt).map((m) => `## ${titleOf(m.text)}\nUpdatedAt: ${formatTime(m.updatedAt)}\n\n${m.text}\n`).join("\n---\n\n");
+      download(`mini-memos-${isoTs()}.md`, `# ミニメモ\n\n${md}`, "text/markdown;charset=utf-8");
+      setStatus("MDを書き出しました");
     });
 
-    $editor.addEventListener("input", () => {
-      clearTimeout(timer);
-      timer = setTimeout(saveCurrentMemo, 300);
-    });
-
-    $editor.addEventListener("blur", () => {
-      clearTimeout(timer);
-      saveCurrentMemo();
-    });
-
-    $search.addEventListener("input", () => render());
-
-    // ---- JSONエクスポート ----
-    $exportJson.addEventListener("click", () => {
-      const payload = { version: 3, exportedAt: Date.now(), memos };
-      download(
-        `mini-memos-${isoTs()}.json`,
-        JSON.stringify(payload, null, 2),
-        "application/json;charset=utf-8",
-        true
-      );
-      setStatus("JSONを書き出しました", "ok", 1200);
-    });
-
-    // ---- Markdownエクスポート ----
-    const toMarkdown = (memosArr) => {
-      const sorted = [...memosArr].sort((a,b) => b.updatedAt - a.updatedAt);
-      const exportedAt = formatTime(Date.now());
-
-      let out = `# ミニメモ 書き出し\n`;
-      out += `ExportedAt: ${exportedAt}\n\n`;
-      out += `---\n\n`;
-
-      for (const m of sorted) {
-        const title = titleOf(m.text);
-        const updated = formatTime(m.updatedAt);
-        const body = (m.text ?? "").trim();
-        out += `## ${title}\n`;
-        out += `UpdatedAt: ${updated}\n`;
-        out += `Pinned: ${m.pinned ? "yes" : "no"}\n\n`;
-        out += `${body}\n\n`;
-        out += `---\n\n`;
-      }
-      return out;
-    };
-
-    $exportMd.addEventListener("click", () => {
-      const md = toMarkdown(memos);
-      download(
-        `mini-memos-${isoTs()}.md`,
-        md,
-        "text/markdown;charset=utf-8",
-        true
-      );
-      setStatus("MDを書き出しました", "ok", 1200);
-    });
-
-    // ---- JSONインポート（復元） ----
-    $import.addEventListener("click", () => $importFile.click());
-
+    $("import").addEventListener("click", () => $importFile.click());
     $importFile.addEventListener("change", async () => {
-      const file = $importFile.files?.[0];
-      if (!file) return;
-
+      const file = $importFile.files?.[0]; if (!file) return;
       try {
-        const text = await file.text();
-        const obj = JSON.parse(text);
-
+        const obj = JSON.parse(await file.text());
         const imported = normalizeImported(obj?.memos);
         if (imported.length === 0) throw new Error("有効なメモが0件です");
-
-        const msg = `${imported.length}件のメモをインポートします。\n現在のメモ（${memos.length}件）は上書きされます。\n\nよろしいですか？`;
-        if (!confirm(msg)) return;
-
+        if (!confirm(`${imported.length}件をインポートし、現在データを上書きします。よろしいですか？`)) return;
         memos = imported;
-        currentId = memos.sort((a,b)=>b.updatedAt-a.updatedAt)[0].id;
-
-        const m = memos.find(x => x.id === currentId);
-        $editor.value = m ? m.text : "";
-
-        safeSave();
-        render();
-        setStatus("インポートしました", "ok", 1400);
-      } catch (e) {
-        alert("インポートに失敗しました: " + (e?.message ?? e));
-        setStatus("インポート失敗", "err", 1600);
-      } finally {
-        $importFile.value = "";
-      }
+        currentId = [...memos].sort((a, b) => b.updatedAt - a.updatedAt)[0].id;
+        $editor.value = memos.find((x) => x.id === currentId)?.text ?? "";
+        saveStateThroughAdapter(); render(); setStatus("インポートしました");
+      } catch (e) { setStatus(`インポート失敗: ${e.message ?? e}`, "err", 2000); }
+      finally { $importFile.value = ""; }
     });
 
-    // ---- 文字数カウント ----
-    const updateCharCount = () => {
-      const text = $editor.value;
-      const chars = text.length;
-      const lines = text ? text.split("\n").length : 0;
-      $charCount.textContent = `${chars} 文字 ｜ ${lines} 行`;
+    const migrateLocalToCloud = () => {
+      if (!auth.loggedIn) return setStatus("先にログインしてください", "warn");
+      const local = localAdapter.loadState();
+      const remote = cloudAdapter.loadState(auth);
+      if (!local.memos.length) return setStatus("移行するローカルメモがありません", "warn");
+      const overwrite = remote.memos.length > 0;
+      const msg = overwrite
+        ? `クラウドに既存 ${remote.memos.length} 件があります。ローカル ${local.memos.length} 件で上書きしますか？`
+        : `ローカル ${local.memos.length} 件をクラウドへ初回移行しますか？`;
+      if (!confirm(msg)) return;
+      try {
+        cloudAdapter.saveState(local, auth);
+        memos = local.memos; currentId = local.currentId;
+        select(currentId || memos[0]?.id);
+        setStatus("クラウド移行が完了しました", "ok", 1600);
+        setSync("idle");
+      } catch (e) {
+        if (String(e.message).includes("offline")) {
+          enqueue({ type: "saveState", state: local, at: now() });
+          setStatus("オフラインのため移行をキューへ追加", "warn", 2000);
+        } else setStatus("移行失敗", "err");
+      }
+    };
+    $migrate.addEventListener("click", migrateLocalToCloud);
+
+    const login = (provider) => {
+      const email = provider === "email" ? prompt("メールアドレスを入力してください", "user@example.com") : `${provider}_user@example.com`;
+      if (!email) return;
+      auth = { loggedIn: true, provider, email, id: `${provider}:${email}` };
+      saveAuth(auth);
+      updateTopbar();
+      const remote = cloudAdapter.loadState(auth);
+      const local = localAdapter.loadState();
+      if (remote.memos.length === 0 && local.memos.length > 0) {
+        setStatus("初回ログイン: ローカル→クラウド移行できます", "warn", 2200);
+      }
+      memos = remote.memos.length ? remote.memos : [{ id: uid(), text: "", updatedAt: now(), pinned: false }];
+      currentId = remote.currentId || memos[0].id;
+      processQueue();
+      select(currentId);
+      render();
     };
 
-    $editor.addEventListener("input", updateCharCount);
-
-    // ---- キーボードショートカット ----
-    document.addEventListener("keydown", (e) => {
-      const key = e.key.toLowerCase();
-      if ((e.ctrlKey || e.metaKey) && key === "n") {
-        e.preventDefault();
-        $new.click();
-      }
-      if ((e.ctrlKey || e.metaKey) && key === "e") {
-        e.preventDefault();
-        $exportJson.click();
-      }
-      if ((e.ctrlKey || e.metaKey) && key === "d") {
-        e.preventDefault();
-        $dup.click();
-      }
+    $("loginEmail").addEventListener("click", () => login("email"));
+    $("loginGoogle").addEventListener("click", () => login("google"));
+    $("loginApple").addEventListener("click", () => login("apple"));
+    $("logout").addEventListener("click", () => {
+      clearTimeout(timer); saveCurrentMemo();
+      auth = { loggedIn: false }; saveAuth(auth); updateTopbar();
+      const local = localAdapter.loadState(); memos = local.memos; currentId = local.currentId;
+      if (!memos.length) { const id = uid(); memos = [{ id, text: "", updatedAt: now(), pinned: false }]; currentId = id; localAdapter.saveState({ memos, currentId }); }
+      select(currentId); render();
     });
 
-    document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState !== "hidden") return;
-      clearTimeout(timer);
-      saveCurrentMemo();
-    });
+    const updateCharCount = () => { const text = $editor.value; $charCount.textContent = `${text.length} 文字 ｜ ${text ? text.split("\n").length : 0} 行`; };
+    const updatePinButton = () => { const m = memos.find((x) => x.id === currentId); if (!m) return; $pin.textContent = m.pinned ? "ピン解除" : "ピン留め"; $pin.classList.toggle("isPinned", m.pinned); };
 
-    window.addEventListener("beforeunload", () => {
-      clearTimeout(timer);
-      saveCurrentMemo();
-    });
+    window.addEventListener("online", () => { processQueue(); setStatus("オンライン復帰: 同期再開", "ok", 1200); });
+    window.addEventListener("offline", () => setSync("queued", "offline"));
+    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") { clearTimeout(timer); saveCurrentMemo(); } });
+    window.addEventListener("beforeunload", () => { clearTimeout(timer); saveCurrentMemo(); });
 
-    // boot
-    load();
+    updateTopbar();
+    loadInitialState();
     select(currentId);
     render();
     updateCharCount();
-
-    function updatePinButton() {
-      const m = memos.find(x => x.id === currentId);
-      if (!m) return;
-      $pin.textContent = m.pinned ? "ピン解除" : "ピン留め";
-      $pin.classList.toggle("isPinned", m.pinned);
-    }
+    processQueue();
   </script>
 </body>
 </html>

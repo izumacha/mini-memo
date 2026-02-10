@@ -384,6 +384,7 @@
 
       <div class="row" style="margin-bottom:10px;">
         <button id="new">＋ 新規</button>
+        <button id="dup">複製</button>
         <button id="del">削除</button>
         <button id="pin">ピン留め</button>
         <button id="exportJson">JSON</button>
@@ -405,7 +406,7 @@
     <div class="panel">
       <div class="panelHeader">
         <div class="panelTitle">Editor</div>
-        <div class="muted" style="margin-left:auto;">自動保存: 300ms ｜ <kbd>Ctrl+N</kbd> 新規 ｜ <kbd>Ctrl+E</kbd> JSON出力</div>
+        <div class="muted" style="margin-left:auto;">自動保存: 300ms ｜ <kbd>Ctrl+N</kbd> 新規 ｜ <kbd>Ctrl+D</kbd> 複製 ｜ <kbd>Ctrl+E</kbd> JSON出力</div>
       </div>
       <textarea id="editor" placeholder="メモ本文…（先頭1行がタイトルになります）"></textarea>
       <div id="charCount" class="charCount"></div>
@@ -427,6 +428,7 @@
     const $search = document.getElementById("search");
 
     const $new = document.getElementById("new");
+    const $dup = document.getElementById("dup");
     const $del = document.getElementById("del");
     const $exportJson = document.getElementById("exportJson");
     const $exportMd = document.getElementById("exportMd");
@@ -475,6 +477,15 @@
         setStatus("保存に失敗（容量不足？）", "err", 1800);
         return false;
       }
+    };
+
+    const saveCurrentMemo = () => {
+      const m = memos.find(x => x.id === currentId);
+      if (!m) return;
+      m.text = $editor.value;
+      m.updatedAt = now();
+      safeSave();
+      render();
     };
 
     const load = () => {
@@ -568,6 +579,21 @@
       safeSave();
     });
 
+    $dup.addEventListener("click", () => {
+      const m = memos.find(x => x.id === currentId);
+      if (!m) return;
+      const id = uid();
+      memos.push({
+        id,
+        text: m.text,
+        updatedAt: now(),
+        pinned: false,
+      });
+      select(id);
+      safeSave();
+      setStatus("メモを複製しました", "ok", 1000);
+    });
+
     $del.addEventListener("click", () => {
       const idx = memos.findIndex(x => x.id === currentId);
       if (idx === -1) return;
@@ -596,14 +622,12 @@
 
     $editor.addEventListener("input", () => {
       clearTimeout(timer);
-      timer = setTimeout(() => {
-        const m = memos.find(x => x.id === currentId);
-        if (!m) return;
-        m.text = $editor.value;
-        m.updatedAt = now();
-        safeSave();
-        render();
-      }, 300);
+      timer = setTimeout(saveCurrentMemo, 300);
+    });
+
+    $editor.addEventListener("blur", () => {
+      clearTimeout(timer);
+      saveCurrentMemo();
     });
 
     $search.addEventListener("input", () => render());
@@ -707,6 +731,21 @@
         e.preventDefault();
         $exportJson.click();
       }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "d") {
+        e.preventDefault();
+        $dup.click();
+      }
+    });
+
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState !== "hidden") return;
+      clearTimeout(timer);
+      saveCurrentMemo();
+    });
+
+    window.addEventListener("beforeunload", () => {
+      clearTimeout(timer);
+      saveCurrentMemo();
     });
 
     // boot

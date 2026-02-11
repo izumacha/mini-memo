@@ -41,6 +41,21 @@
     .ok{color:#6EE7A8;border-color:rgba(110,231,168,.25);background:rgba(110,231,168,.08)} .warn{color:#FBBF24;border-color:rgba(251,191,36,.25);background:rgba(251,191,36,.08)} .err{color:#F87171;border-color:rgba(248,113,113,.25);background:rgba(248,113,113,.08)}
     .syncPill{font-size:12px;padding:6px 10px;border-radius:999px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.05)}
     .charCount{margin-top:8px;font-size:12px;color:var(--muted2);font-family:"JetBrains Mono",monospace;text-align:right}
+    .editorTabs{display:flex;gap:6px;margin-bottom:8px}
+    .editorTab{padding:8px 12px;font-size:12px;border-radius:10px}
+    .editorTab.isActive{background:linear-gradient(135deg, rgba(124,92,255,.35), rgba(45,226,230,.26));border-color:rgba(124,92,255,.45);color:#fff}
+    .previewPane{display:none;min-height:70vh;padding:14px;border-radius:var(--radius2);border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.18);overflow:auto;line-height:1.65}
+    .previewPane.isActive{display:block}
+    #editor.isHidden{display:none}
+    .previewPane h1,.previewPane h2,.previewPane h3{margin:1em 0 .45em}
+    .previewPane ul,.previewPane ol{padding-left:22px}
+    .previewPane pre{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.10);border-radius:10px;padding:10px;overflow:auto}
+    .previewPane code{font-family:"JetBrains Mono",monospace;font-size:13px}
+    .previewPane a{color:#8dd3ff}
+    .previewPane .task-item{list-style:none;display:flex;align-items:flex-start;gap:8px;margin:4px 0}
+    .previewPane .task-item input{margin-top:3px}
+    .snippet{margin-top:7px;font-size:12px;color:var(--muted);line-height:1.45}
+    mark{background:rgba(251,191,36,.3);color:#fff;padding:0 2px;border-radius:4px}
     .panelHeader{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
     .panelTitle{font-size:12px;color:rgba(255,255,255,.78);font-weight:700}
     .filterSelect,.dtInput{padding:9px 10px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.18);color:var(--text)}
@@ -135,7 +150,12 @@
         </div>
         <div id="notifyHint" class="muted" style="margin-top:8px;"></div>
       </div>
+      <div class="editorTabs" role="tablist" aria-label="エディタ表示切替">
+        <button id="tabEdit" class="editorTab isActive" role="tab" aria-selected="true">編集</button>
+        <button id="tabPreview" class="editorTab" role="tab" aria-selected="false">プレビュー</button>
+      </div>
       <textarea id="editor" placeholder="メモ本文…（先頭1行がタイトルになります）"></textarea>
+      <div id="previewPane" class="previewPane" aria-live="polite"></div>
       <div id="charCount" class="charCount"></div>
     </div>
   </div>
@@ -377,6 +397,7 @@
     let timer = null;
     let syncState = "idle";
     let selectedHistorySavedAt = null;
+    let editorView = "edit";
     let undoTimer = null;
     let notifiedReminderIds = (() => { try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.notified) || "[]") || []; } catch { return []; } })();
     let queue = (() => { try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.queue) || "[]") || []; } catch { return []; } })();
@@ -384,6 +405,7 @@
     const $ = (id) => document.getElementById(id);
     const $list = $("list"); const $editor = $("editor"); const $status = $("status"); const $count = $("count"); const $search = $("search");
     const $pin = $("pin"); const $importFile = $("importFile"); const $charCount = $("charCount"); const $authLabel = $("authLabel");
+    const $tabEdit = $("tabEdit"); const $tabPreview = $("tabPreview"); const $previewPane = $("previewPane");
     const $storageBadge = $("storageBadge"); const $syncStatus = $("syncStatus"); const $migrate = $("migrate");
     const $notebookFilter = $("notebookFilter"); const $tagFilter = $("tagFilter"); const $pinnedOnly = $("pinnedOnly"); const $timeFilter = $("timeFilter");
     const $historyModal = $("historyModal"); const $historyList = $("historyList"); const $historyPreview = $("historyPreview"); const $historyCurrent = $("historyCurrent");
@@ -501,6 +523,123 @@
     const sortMemos = (items) => [...items].sort((a, b) => (a.pinned !== b.pinned ? (a.pinned ? -1 : 1) : b.updatedAt - a.updatedAt));
     const selectedNotebookId = () => ($notebookFilter.value && $notebookFilter.value !== "all" ? $notebookFilter.value : "default");
 
+    const countTasks = (text) => {
+      const matches = String(text ?? "").match(/^\s*[-*]\s+\[( |x|X)\]\s+/gm) || [];
+      const done = (String(text ?? "").match(/^\s*[-*]\s+\[(x|X)\]\s+/gm) || []).length;
+      return { done, open: matches.length - done, total: matches.length };
+    };
+
+    const escapeRegExp = (v) => v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const highlightTerm = (snippetText, q) => {
+      if (!q) return escapeHtml(snippetText);
+      const re = new RegExp(`(${escapeRegExp(q)})`, "ig");
+      return escapeHtml(snippetText).replace(re, "<mark>$1</mark>");
+    };
+
+    const buildSnippet = (memo, q) => {
+      if (!q) return "";
+      const body = (memo.text || "").replace(/\s+/g, " ").trim();
+      const lower = body.toLowerCase();
+      const idx = lower.indexOf(q);
+      if (idx < 0) return "";
+      const start = Math.max(0, idx - 30);
+      const end = Math.min(body.length, idx + q.length + 50);
+      const prefix = start > 0 ? "…" : "";
+      const suffix = end < body.length ? "…" : "";
+      return `${prefix}${body.slice(start, end)}${suffix}`;
+    };
+
+    const formatInline = (line) => {
+      const escaped = escapeHtml(line);
+      const withCode = escaped.replace(/`([^`]+)`/g, "<code>$1</code>");
+      return withCode.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
+    };
+
+    const renderMarkdown = (text) => {
+      const lines = String(text ?? "").split("\n");
+      const html = [];
+      let inCode = false;
+      let listType = "";
+      const closeList = () => { if (listType) { html.push(`</${listType}>`); listType = ""; } };
+
+      for (let i = 0; i < lines.length; i += 1) {
+        const line = lines[i];
+        if (line.trim().startsWith("```")) {
+          closeList();
+          if (!inCode) { html.push("<pre><code>"); inCode = true; }
+          else { html.push("</code></pre>"); inCode = false; }
+          continue;
+        }
+        if (inCode) { html.push(`${escapeHtml(line)}\n`); continue; }
+
+        const heading = line.match(/^(#{1,3})\s+(.*)$/);
+        if (heading) {
+          closeList();
+          const level = heading[1].length;
+          html.push(`<h${level}>${formatInline(heading[2])}</h${level}>`);
+          continue;
+        }
+
+        const task = line.match(/^\s*[-*]\s+\[( |x|X)\]\s+(.*)$/);
+        if (task) {
+          if (listType !== "ul") { closeList(); html.push("<ul>"); listType = "ul"; }
+          const checked = task[1].toLowerCase() === "x";
+          html.push(`<li class="task-item" data-source-line="${i}"><input type="checkbox" ${checked ? "checked" : ""} data-task-toggle="1" /><span>${formatInline(task[2])}</span></li>`);
+          continue;
+        }
+
+        const ul = line.match(/^\s*[-*]\s+(.*)$/);
+        if (ul) {
+          if (listType !== "ul") { closeList(); html.push("<ul>"); listType = "ul"; }
+          html.push(`<li>${formatInline(ul[1])}</li>`);
+          continue;
+        }
+
+        const ol = line.match(/^\s*\d+\.\s+(.*)$/);
+        if (ol) {
+          if (listType !== "ol") { closeList(); html.push("<ol>"); listType = "ol"; }
+          html.push(`<li>${formatInline(ol[1])}</li>`);
+          continue;
+        }
+
+        closeList();
+        if (!line.trim()) html.push("<br />");
+        else html.push(`<p>${formatInline(line)}</p>`);
+      }
+      closeList();
+      if (inCode) html.push("</code></pre>");
+      return html.join("");
+    };
+
+    const renderPreview = () => {
+      $previewPane.innerHTML = renderMarkdown($editor.value);
+    };
+
+    const setEditorView = (next) => {
+      editorView = next === "preview" ? "preview" : "edit";
+      const preview = editorView === "preview";
+      $editor.classList.toggle("isHidden", preview);
+      $previewPane.classList.toggle("isActive", preview);
+      $tabEdit.classList.toggle("isActive", !preview);
+      $tabPreview.classList.toggle("isActive", preview);
+      $tabEdit.setAttribute("aria-selected", String(!preview));
+      $tabPreview.setAttribute("aria-selected", String(preview));
+      if (preview) renderPreview();
+      else $editor.focus();
+    };
+
+    const toggleChecklistFromPreview = (lineIndex, checked) => {
+      const lines = $editor.value.split("\n");
+      const line = lines[lineIndex];
+      if (!line) return;
+      lines[lineIndex] = line.replace(/^(\s*[-*]\s+\[)( |x|X)(\]\s+)/, (_, a, __, c) => `${a}${checked ? "x" : " "}${c}`);
+      $editor.value = lines.join("\n");
+      clearTimeout(timer);
+      saveCurrentMemo();
+      renderPreview();
+      updateCharCount();
+    };
+
     const refreshNotebookFilterOptions = () => {
       const prev = $notebookFilter.value || "all";
       const notebooks = ["default", ...new Set(memos.map((m) => normalizeNotebookId(m.notebookId)))].sort();
@@ -606,17 +745,19 @@
         localAdapter.upsertMemo(m);
       }
       render();
+      if (editorView === "preview") renderPreview();
     };
 
     const select = (id) => {
       currentId = id;
       const m = memos.find((x) => x.id === id);
       $editor.value = m ? m.text : "";
+      renderPreview();
       saveStateThroughAdapter();
       render();
       updatePinButton();
       updateReminderForm();
-      $editor.focus();
+      if (editorView === "edit") $editor.focus();
     };
 
     const filtered = () => {
@@ -657,11 +798,15 @@ ${(m.tags || []).join(" ")}`.toLowerCase();
         const reminderText = m.reminderAt ? formatTime(m.reminderAt) : "";
         const reminderClass = m.reminderAt && !m.reminderDone && m.reminderAt < now() ? "overdue" : "";
         const reminderBadge = m.reminderAt ? `<span class="reminderBadge${m.reminderDone ? " done" : ""}">${m.reminderDone ? "通知済" : "通知"}</span>` : "";
-        div.innerHTML = `<div class="itemHeader"><div class="title">${titleOf(m.text)}</div><div class="row">${reminderBadge}<span>${m.pinned ? "★" : "☆"}</span></div></div><div class="meta">${formatTime(m.updatedAt)} ｜ nb:${normalizeNotebookId(m.notebookId)}${m.tags.length ? ` ｜ #${m.tags.join(" #")}` : ""}${reminderText ? ` ｜ <span class="${reminderClass}">${reminderText}</span>` : ""}</div>`;
+        const q = ($search.value ?? "").trim().toLowerCase();
+        const snippet = buildSnippet(m, q);
+        const snippetHtml = snippet ? `<div class="snippet">${highlightTerm(snippet, q)}</div>` : "";
+        div.innerHTML = `<div class="itemHeader"><div class="title">${titleOf(m.text)}</div><div class="row">${reminderBadge}<span>${m.pinned ? "★" : "☆"}</span></div></div><div class="meta">${formatTime(m.updatedAt)} ｜ nb:${normalizeNotebookId(m.notebookId)}${m.tags.length ? ` ｜ #${m.tags.join(" #")}` : ""}${reminderText ? ` ｜ <span class="${reminderClass}">${reminderText}</span>` : ""}</div>${snippetHtml}`;
         div.addEventListener("click", () => select(m.id));
         $list.appendChild(div);
       }
       updatePinButton();
+      if (editorView === "preview") renderPreview();
     };
 
     const download = (filename, text, mime) => {
@@ -893,13 +1038,25 @@ ${(m.tags || []).join(" ")}`.toLowerCase();
     });
 
     $pin.addEventListener("click", () => { const m = memos.find((x) => x.id === currentId); if (!m) return; m.pinned = !m.pinned; m.updatedAt = now(); saveStateThroughAdapter(); render(); });
-    $editor.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(saveCurrentMemo, 300); updateCharCount(); });
+    $editor.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(saveCurrentMemo, 300); updateCharCount(); renderPreview(); });
     $editor.addEventListener("blur", () => { clearTimeout(timer); saveCurrentMemo(); });
     $search.addEventListener("input", render);
     $notebookFilter.addEventListener("change", render);
     $tagFilter.addEventListener("input", render);
     $pinnedOnly.addEventListener("change", render);
     $timeFilter.addEventListener("change", render);
+
+    $tabEdit.addEventListener("click", () => setEditorView("edit"));
+    $tabPreview.addEventListener("click", () => setEditorView("preview"));
+    $previewPane.addEventListener("change", (event) => {
+      const input = event.target;
+      if (!(input instanceof HTMLInputElement) || !input.matches("input[data-task-toggle]")) return;
+      const row = input.closest("[data-source-line]");
+      if (!row) return;
+      const lineIndex = Number(row.getAttribute("data-source-line"));
+      if (!Number.isFinite(lineIndex)) return;
+      toggleChecklistFromPreview(lineIndex, input.checked);
+    });
 
     $reminderAt.addEventListener("change", () => {
       const memo = getCurrentMemo();
@@ -1003,8 +1160,7 @@ ${(m.tags || []).join(" ")}`.toLowerCase();
 
     $("exportJson").addEventListener("click", () => { download(`mini-memos-${isoTs()}.json`, JSON.stringify({ version: 8, exportedAt: Date.now(), memos, trash, shareMeta }, null, 2), "application/json;charset=utf-8"); setStatus("JSONを書き出しました"); });
     $("exportMd").addEventListener("click", () => {
-      const md = sortMemos(memos).map((m) => `## ${titleOf(m.text)}\nUpdatedAt: ${formatTime(m.updatedAt)}\nNotebook: ${normalizeNotebookId(m.notebookId)}\nTags: ${(m.tags || []).join(", ")}\n\n${m.text}\n`).join("\n---\n\n");
-      download(`mini-memos-${isoTs()}.md`, `# ミニメモ\n\n${md}`, "text/markdown;charset=utf-8");
+      download(`mini-memos-${isoTs()}.md`, $editor.value, "text/markdown;charset=utf-8");
       setStatus("MDを書き出しました");
     });
 
@@ -1090,7 +1246,7 @@ ${(m.tags || []).join(" ")}`.toLowerCase();
       select(currentId); render();
     });
 
-    const updateCharCount = () => { const text = $editor.value; $charCount.textContent = `${text.length} 文字 ｜ ${text ? text.split("\n").length : 0} 行`; };
+    const updateCharCount = () => { const text = $editor.value; const tasks = countTasks(text); $charCount.textContent = `${text.length} 文字 ｜ ${text ? text.split("\n").length : 0} 行 ｜ 完了 ${tasks.done} / 未完了 ${tasks.open}`; };
     const updatePinButton = () => { const m = memos.find((x) => x.id === currentId); if (!m) return; $pin.textContent = m.pinned ? "ピン解除" : "ピン留め"; $pin.classList.toggle("isPinned", m.pinned); };
 
     window.addEventListener("online", () => { processQueue(); setStatus("オンライン復帰: 同期再開", "ok", 1200); });
@@ -1111,6 +1267,8 @@ ${(m.tags || []).join(" ")}`.toLowerCase();
       select(currentId);
       render();
       updateCharCount();
+      renderPreview();
+      setEditorView("edit");
       updateNotifyState();
       processQueue();
       checkDueReminders();

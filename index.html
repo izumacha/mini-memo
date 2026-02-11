@@ -43,6 +43,13 @@
     .charCount{margin-top:8px;font-size:12px;color:var(--muted2);font-family:"JetBrains Mono",monospace;text-align:right}
     .panelHeader{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
     .panelTitle{font-size:12px;color:rgba(255,255,255,.78);font-weight:700}
+    .filterSelect,.dtInput{padding:9px 10px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.18);color:var(--text)}
+    .notifyBox{margin-bottom:10px;padding:10px;border-radius:12px;border:1px solid var(--stroke);background:rgba(255,255,255,.03)}
+    .notifyState{font-size:12px;padding:6px 10px;border-radius:999px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04)}
+    .notifyState.bad{color:#FBBF24;border-color:rgba(251,191,36,.35);background:rgba(251,191,36,.12)}
+    .reminderBadge{font-size:10px;color:#FDE68A;border:1px solid rgba(251,191,36,.38);border-radius:999px;padding:2px 6px}
+    .reminderBadge.done{color:#86EFAC;border-color:rgba(134,239,172,.38)}
+    .overdue{color:#FCA5A5}
     .shareMeta{margin-top:8px;padding:10px;border-radius:12px;border:1px solid var(--stroke);background:rgba(255,255,255,.03);font-size:12px;color:var(--muted)}
     .shareUrl{font-family:"JetBrains Mono",monospace;word-break:break-all;color:rgba(255,255,255,.8)}
     .readonlyWrap{max-width:920px;margin:0 auto;padding:20px}
@@ -98,10 +105,16 @@
       <input id="search" type="search" placeholder="検索（タイトル/本文/タグ）" />
       <div class="row" style="margin-top:8px;">
         <label class="muted" for="notebookFilter">Notebook</label>
-        <select id="notebookFilter" style="padding:9px 10px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.18);color:var(--text);">
+        <select id="notebookFilter" class="filterSelect">
           <option value="all">すべて</option>
         </select>
-        <input id="tagFilter" type="search" placeholder="タグフィルタ（例: work）" style="max-width:180px;padding:9px 10px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.18);color:var(--text);" />
+        <input id="tagFilter" type="search" placeholder="タグフィルタ（例: work）" style="max-width:180px;" />
+        <select id="timeFilter" class="filterSelect">
+          <option value="all">期限: すべて</option>
+          <option value="overdue">期限切れ</option>
+          <option value="today">今日</option>
+          <option value="week">今週</option>
+        </select>
         <label class="muted" style="display:inline-flex;align-items:center;gap:6px;"><input id="pinnedOnly" type="checkbox" />ピンのみ</label>
       </div>
       <div class="row" style="margin-top:8px;"><div class="muted">Tips: 先頭1行がタイトルになります</div></div>
@@ -109,6 +122,19 @@
     </div>
     <div class="panel">
       <div class="panelHeader"><div class="panelTitle">Editor</div><div class="row"><button id="share">共有</button><button id="viewHistory">履歴を見る</button><div id="shortcutHint" class="muted">自動保存: 300ms</div></div></div>
+      <div class="notifyBox">
+        <div class="row" style="justify-content:space-between;">
+          <strong style="font-size:12px;">通知設定</strong>
+          <span id="notifyState" class="notifyState">通知: 未確認</span>
+        </div>
+        <div class="row" style="margin-top:8px;">
+          <input id="reminderAt" class="dtInput" type="datetime-local" />
+          <button id="requestNotify">通知を許可</button>
+          <button id="clearReminder">解除</button>
+          <label class="muted" style="display:inline-flex;align-items:center;gap:6px;"><input id="reminderDone" type="checkbox" /> 通知済みにする</label>
+        </div>
+        <div id="notifyHint" class="muted" style="margin-top:8px;"></div>
+      </div>
       <textarea id="editor" placeholder="メモ本文…（先頭1行がタイトルになります）"></textarea>
       <div id="charCount" class="charCount"></div>
     </div>
@@ -161,13 +187,21 @@
     </div>
   </div>
 
+  <div id="reminderModal" class="modal" role="dialog" aria-modal="true">
+    <div class="modalCard">
+      <div class="modalHead"><strong>期限到来メモ</strong><button id="closeReminder">閉じる</button></div>
+      <div id="reminderList" class="historyList"></div>
+    </div>
+  </div>
+
   <div id="snackbar" class="snackbar"><span id="snackbarText"></span><button id="snackbarUndo">Undo</button></div>
   <div id="toast" class="toast"></div>
 
   <script>
-    const STORAGE_KEYS = { localState: "mini_memos_state_v4", auth: "mini_memos_auth_v1", queue: "mini_memos_sync_queue_v1", share: "mini_memos_share_v1" };
+    const STORAGE_KEYS = { localState: "mini_memos_state_v5", auth: "mini_memos_auth_v1", queue: "mini_memos_sync_queue_v1", share: "mini_memos_share_v1", notified: "mini_memos_notified_v1" };
     const HISTORY_LIMIT = 20;
     const TRASH_RETENTION_MS = 1000 * 60 * 60 * 24 * 7;
+    const DAY_MS = 1000 * 60 * 60 * 24;
 
     const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
     const now = () => Date.now();
@@ -189,6 +223,8 @@
         tags: Array.isArray(m.tags) ? m.tags.filter((t) => typeof t === "string").map((t) => t.trim()).filter(Boolean) : [],
         notebookId: normalizeNotebookId(m.notebookId),
         history: normalizeHistory(m.history),
+        reminderAt: typeof m.reminderAt === "number" ? m.reminderAt : null,
+        reminderDone: Boolean(m.reminderDone),
       }))
       : [];
 
@@ -342,17 +378,19 @@
     let syncState = "idle";
     let selectedHistorySavedAt = null;
     let undoTimer = null;
+    let notifiedReminderIds = (() => { try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.notified) || "[]") || []; } catch { return []; } })();
     let queue = (() => { try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.queue) || "[]") || []; } catch { return []; } })();
 
     const $ = (id) => document.getElementById(id);
     const $list = $("list"); const $editor = $("editor"); const $status = $("status"); const $count = $("count"); const $search = $("search");
     const $pin = $("pin"); const $importFile = $("importFile"); const $charCount = $("charCount"); const $authLabel = $("authLabel");
     const $storageBadge = $("storageBadge"); const $syncStatus = $("syncStatus"); const $migrate = $("migrate");
-    const $notebookFilter = $("notebookFilter"); const $tagFilter = $("tagFilter"); const $pinnedOnly = $("pinnedOnly");
+    const $notebookFilter = $("notebookFilter"); const $tagFilter = $("tagFilter"); const $pinnedOnly = $("pinnedOnly"); const $timeFilter = $("timeFilter");
     const $historyModal = $("historyModal"); const $historyList = $("historyList"); const $historyPreview = $("historyPreview"); const $historyCurrent = $("historyCurrent");
-    const $trashModal = $("trashModal"); const $trashList = $("trashList");
+    const $trashModal = $("trashModal"); const $trashList = $("trashList"); const $reminderModal = $("reminderModal"); const $reminderList = $("reminderList");
     const $shareModal = $("shareModal"); const $shareMeta = $("shareMeta"); const $piiWarning = $("piiWarning");
     const $snackbar = $("snackbar"); const $snackbarText = $("snackbarText"); const $snackbarUndo = $("snackbarUndo"); const $toast = $("toast");
+    const $reminderAt = $("reminderAt"); const $reminderDone = $("reminderDone"); const $notifyState = $("notifyState"); const $notifyHint = $("notifyHint");
 
     const setStatus = (text, kind = "ok", ms = 1200) => { $status.textContent = text; $status.className = `status ${kind}`; if (ms > 0) setTimeout(() => { $status.textContent = ""; $status.className = "status"; }, ms); };
     const setSync = (state, detail = "") => {
@@ -379,6 +417,45 @@
       $toast.textContent = message;
       $toast.classList.add("show");
       setTimeout(() => $toast.classList.remove("show"), 1800);
+    };
+
+    const saveNotifiedReminderIds = () => localStorage.setItem(STORAGE_KEYS.notified, JSON.stringify(notifiedReminderIds));
+    const normalizeDatetimeLocal = (ms) => {
+      const d = new Date(ms);
+      const pad = (n) => String(n).padStart(2, "0");
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    };
+    const permissionState = () => (typeof Notification === "undefined" ? "unsupported" : Notification.permission);
+    const updateNotifyState = () => {
+      const state = permissionState();
+      const labels = { granted: "通知: 許可済み", denied: "通知: ブロック中", default: "通知: 未許可", unsupported: "通知: 非対応" };
+      $notifyState.textContent = labels[state] || labels.default;
+      $notifyState.classList.toggle("bad", state === "denied" || state === "unsupported" || state === "default");
+      $notifyHint.textContent = state === "granted"
+        ? "通知可能です。期限到来時はブラウザ通知を送ります。"
+        : "通知が許可されていないため、期限到来時はアプリ内モーダルでお知らせします。";
+    };
+    const reminderCategory = (memo) => {
+      if (!memo.reminderAt || memo.reminderDone) return null;
+      const reminder = memo.reminderAt;
+      const current = now();
+      if (reminder < current) return "overdue";
+      const startToday = new Date();
+      startToday.setHours(0, 0, 0, 0);
+      const endToday = startToday.getTime() + DAY_MS;
+      if (reminder >= startToday.getTime() && reminder < endToday) return "today";
+      const dayOfWeek = startToday.getDay();
+      const daysUntilWeekEnd = 7 - dayOfWeek;
+      const weekEnd = startToday.getTime() + (daysUntilWeekEnd * DAY_MS);
+      if (reminder < weekEnd) return "week";
+      return null;
+    };
+    const updateReminderForm = () => {
+      const memo = getCurrentMemo();
+      if (!memo) return;
+      $reminderAt.value = memo.reminderAt ? normalizeDatetimeLocal(memo.reminderAt) : "";
+      $reminderDone.checked = Boolean(memo.reminderDone);
+      updateNotifyState();
     };
 
     const loadShareMeta = () => {
@@ -496,7 +573,7 @@
       currentId = state.currentId;
       if (memos.length === 0) {
         const id = uid();
-        memos = [{ id, text: "", updatedAt: now(), pinned: false, tags: [], notebookId: "default", history: [] }];
+        memos = [{ id, text: "", updatedAt: now(), pinned: false, tags: [], notebookId: "default", history: [], reminderAt: null, reminderDone: false }];
         currentId = id;
         saveStateThroughAdapter();
       }
@@ -538,6 +615,7 @@
       saveStateThroughAdapter();
       render();
       updatePinButton();
+      updateReminderForm();
       $editor.focus();
     };
 
@@ -546,12 +624,21 @@
       const notebook = $notebookFilter.value;
       const tagQ = ($tagFilter.value ?? "").trim().toLowerCase();
       const pinnedOnly = $pinnedOnly.checked;
+      const timeFilter = $timeFilter.value;
       const filteredItems = memos.filter((m) => {
         if (notebook && notebook !== "all" && normalizeNotebookId(m.notebookId) !== notebook) return false;
         if (pinnedOnly && !m.pinned) return false;
         if (tagQ && !m.tags.some((t) => t.toLowerCase().includes(tagQ))) return false;
+        if (timeFilter !== "all") {
+          const c = reminderCategory(m);
+          if (timeFilter === "overdue" && c !== "overdue") return false;
+          if (timeFilter === "today" && c !== "today") return false;
+          if (timeFilter === "week" && !["today", "week"].includes(c || "")) return false;
+        }
         if (!q) return true;
-        const target = `${titleOf(m.text)}\n${m.text}\n${(m.tags || []).join(" ")}`.toLowerCase();
+        const target = `${titleOf(m.text)}
+${m.text}
+${(m.tags || []).join(" ")}`.toLowerCase();
         return target.includes(q);
       });
       return sortMemos(filteredItems);
@@ -567,7 +654,10 @@
         const div = document.createElement("div");
         div.className = `item${m.id === currentId ? " active" : ""}${m.pinned ? " pinned" : ""}`;
         div.dataset.id = m.id;
-        div.innerHTML = `<div class="itemHeader"><div class="title">${titleOf(m.text)}</div><div>${m.pinned ? "★" : "☆"}</div></div><div class="meta">${formatTime(m.updatedAt)} ｜ nb:${normalizeNotebookId(m.notebookId)}${m.tags.length ? ` ｜ #${m.tags.join(" #")}` : ""}</div>`;
+        const reminderText = m.reminderAt ? formatTime(m.reminderAt) : "";
+        const reminderClass = m.reminderAt && !m.reminderDone && m.reminderAt < now() ? "overdue" : "";
+        const reminderBadge = m.reminderAt ? `<span class="reminderBadge${m.reminderDone ? " done" : ""}">${m.reminderDone ? "通知済" : "通知"}</span>` : "";
+        div.innerHTML = `<div class="itemHeader"><div class="title">${titleOf(m.text)}</div><div class="row">${reminderBadge}<span>${m.pinned ? "★" : "☆"}</span></div></div><div class="meta">${formatTime(m.updatedAt)} ｜ nb:${normalizeNotebookId(m.notebookId)}${m.tags.length ? ` ｜ #${m.tags.join(" #")}` : ""}${reminderText ? ` ｜ <span class="${reminderClass}">${reminderText}</span>` : ""}</div>`;
         div.addEventListener("click", () => select(m.id));
         $list.appendChild(div);
       }
@@ -635,7 +725,7 @@
             trash.push(t);
             if (!memos.length) {
               const id = uid();
-              memos.push({ id, text: "", updatedAt: now(), pinned: false, tags: [], notebookId: selectedNotebookId(), history: [] });
+              memos.push({ id, text: "", updatedAt: now(), pinned: false, tags: [], notebookId: selectedNotebookId(), history: [], reminderAt: null, reminderDone: false });
               currentId = id;
             } else currentId = sortMemos(memos)[0].id;
             $editor.value = getCurrentMemo()?.text || "";
@@ -662,6 +752,57 @@
         row.lastElementChild.append(restoreBtn, purgeBtn);
         $trashList.appendChild(row);
       }
+    };
+
+    const renderReminderModal = (dueMemos) => {
+      $reminderList.innerHTML = "";
+      for (const memo of dueMemos) {
+        const row = document.createElement("div");
+        row.className = "historyItem";
+        row.innerHTML = `<div><strong>${titleOf(memo.text)}</strong></div><div class="muted">期限: ${formatTime(memo.reminderAt)}</div>`;
+        const rowButtons = document.createElement("div");
+        rowButtons.className = "row";
+        const openBtn = document.createElement("button");
+        openBtn.textContent = "開く";
+        openBtn.addEventListener("click", () => { select(memo.id); closeModal($reminderModal); });
+        const doneBtn = document.createElement("button");
+        doneBtn.textContent = "通知済みにする";
+        doneBtn.addEventListener("click", () => {
+          memo.reminderDone = true;
+          notifiedReminderIds = [...new Set([...notifiedReminderIds, memo.id])];
+          saveNotifiedReminderIds();
+          saveStateThroughAdapter();
+          render();
+          renderReminderModal(dueMemos.filter((m) => !m.reminderDone));
+        });
+        rowButtons.append(openBtn, doneBtn);
+        row.append(rowButtons);
+        $reminderList.appendChild(row);
+      }
+      if (!dueMemos.length) $reminderList.innerHTML = '<div class="emptyState">期限到来メモはありません。</div>';
+    };
+
+    const notifyDueMemos = (dueMemos) => {
+      const allowed = permissionState() === "granted";
+      dueMemos.forEach((memo) => {
+        if (allowed) {
+          new Notification(`期限: ${titleOf(memo.text)}`, { body: memo.text.slice(0, 80) || "メモを確認してください" });
+        }
+      });
+      if (!allowed && dueMemos.length) {
+        renderReminderModal(dueMemos);
+        openModal($reminderModal);
+        setStatus("通知権限がないため、アプリ内で期限を表示しました", "warn", 2200);
+      }
+    };
+
+    const checkDueReminders = () => {
+      const dueMemos = memos.filter((m) => m.reminderAt && !m.reminderDone && m.reminderAt <= now() && !notifiedReminderIds.includes(m.id));
+      if (!dueMemos.length) return;
+      notifiedReminderIds = [...new Set([...notifiedReminderIds, ...dueMemos.map((m) => m.id)])];
+      saveNotifiedReminderIds();
+      notifyDueMemos(dueMemos);
+      render();
     };
 
     const getShareInfo = (memoId) => shareMeta[memoId] || { scope: "private", token: "", url: "", generatedAt: 0, snapshot: { title: "（無題）", body: "", updatedAt: 0 }, revokedTokens: [], piiWarnings: [] };
@@ -725,11 +866,11 @@
       updateShareModal();
     };
 
-    $("new").addEventListener("click", () => { const id = uid(); memos.push({ id, text: "", updatedAt: now(), pinned: false, tags: [], notebookId: selectedNotebookId(), history: [] }); select(id); saveStateThroughAdapter(); });
+    $("new").addEventListener("click", () => { const id = uid(); memos.push({ id, text: "", updatedAt: now(), pinned: false, tags: [], notebookId: selectedNotebookId(), history: [], reminderAt: null, reminderDone: false }); select(id); saveStateThroughAdapter(); });
     $("dup").addEventListener("click", () => {
       const m = memos.find((x) => x.id === currentId); if (!m) return;
       const id = uid();
-      memos.push({ id, text: m.text, updatedAt: now(), pinned: false, tags: [...(m.tags || [])], notebookId: selectedNotebookId(), history: normalizeHistory(m.history || []) });
+      memos.push({ id, text: m.text, updatedAt: now(), pinned: false, tags: [...(m.tags || [])], notebookId: selectedNotebookId(), history: normalizeHistory(m.history || []), reminderAt: m.reminderAt, reminderDone: Boolean(m.reminderDone) });
       select(id); saveStateThroughAdapter();
     });
     $("del").addEventListener("click", () => {
@@ -742,7 +883,7 @@
       trash = purgeExpiredTrash(trash);
       if (!memos.length) {
         const id = uid();
-        memos.push({ id, text: "", updatedAt: now(), pinned: false, tags: [], notebookId: selectedNotebookId(), history: [] });
+        memos.push({ id, text: "", updatedAt: now(), pinned: false, tags: [], notebookId: selectedNotebookId(), history: [], reminderAt: null, reminderDone: false });
       }
       currentId = sortMemos(memos)[0].id;
       $editor.value = getCurrentMemo()?.text ?? "";
@@ -758,7 +899,50 @@
     $notebookFilter.addEventListener("change", render);
     $tagFilter.addEventListener("input", render);
     $pinnedOnly.addEventListener("change", render);
+    $timeFilter.addEventListener("change", render);
 
+    $reminderAt.addEventListener("change", () => {
+      const memo = getCurrentMemo();
+      if (!memo) return;
+      memo.reminderAt = $reminderAt.value ? new Date($reminderAt.value).getTime() : null;
+      memo.reminderDone = false;
+      notifiedReminderIds = notifiedReminderIds.filter((id) => id !== memo.id);
+      saveNotifiedReminderIds();
+      memo.updatedAt = now();
+      saveStateThroughAdapter();
+      render();
+    });
+    $reminderDone.addEventListener("change", () => {
+      const memo = getCurrentMemo();
+      if (!memo) return;
+      memo.reminderDone = $reminderDone.checked;
+      if (memo.reminderDone) notifiedReminderIds = [...new Set([...notifiedReminderIds, memo.id])];
+      else notifiedReminderIds = notifiedReminderIds.filter((id) => id !== memo.id);
+      saveNotifiedReminderIds();
+      memo.updatedAt = now();
+      saveStateThroughAdapter();
+      render();
+    });
+    $("clearReminder").addEventListener("click", () => {
+      const memo = getCurrentMemo();
+      if (!memo) return;
+      memo.reminderAt = null;
+      memo.reminderDone = false;
+      notifiedReminderIds = notifiedReminderIds.filter((id) => id !== memo.id);
+      saveNotifiedReminderIds();
+      $reminderAt.value = "";
+      $reminderDone.checked = false;
+      memo.updatedAt = now();
+      saveStateThroughAdapter();
+      render();
+    });
+    $("requestNotify").addEventListener("click", async () => {
+      if (typeof Notification === "undefined") return setStatus("このブラウザは通知に非対応です", "warn", 1700);
+      const result = await Notification.requestPermission();
+      updateNotifyState();
+      if (result === "granted") setStatus("通知を許可しました", "ok", 1200);
+      else setStatus("通知が許可されていないためアプリ内表示を利用します", "warn", 1800);
+    });
 
     $("share").addEventListener("click", () => {
       const memo = getCurrentMemo();
@@ -791,6 +975,7 @@
     $("closeHistory").addEventListener("click", () => closeModal($historyModal));
     $("openTrash").addEventListener("click", () => { renderTrash(); openModal($trashModal); });
     $("closeTrash").addEventListener("click", () => closeModal($trashModal));
+    $("closeReminder").addEventListener("click", () => closeModal($reminderModal));
 
     $("restoreVersion").addEventListener("click", () => {
       const memo = getCurrentMemo();
@@ -816,7 +1001,7 @@
       });
     });
 
-    $("exportJson").addEventListener("click", () => { download(`mini-memos-${isoTs()}.json`, JSON.stringify({ version: 7, exportedAt: Date.now(), memos, trash, shareMeta }, null, 2), "application/json;charset=utf-8"); setStatus("JSONを書き出しました"); });
+    $("exportJson").addEventListener("click", () => { download(`mini-memos-${isoTs()}.json`, JSON.stringify({ version: 8, exportedAt: Date.now(), memos, trash, shareMeta }, null, 2), "application/json;charset=utf-8"); setStatus("JSONを書き出しました"); });
     $("exportMd").addEventListener("click", () => {
       const md = sortMemos(memos).map((m) => `## ${titleOf(m.text)}\nUpdatedAt: ${formatTime(m.updatedAt)}\nNotebook: ${normalizeNotebookId(m.notebookId)}\nTags: ${(m.tags || []).join(", ")}\n\n${m.text}\n`).join("\n---\n\n");
       download(`mini-memos-${isoTs()}.md`, `# ミニメモ\n\n${md}`, "text/markdown;charset=utf-8");
@@ -883,11 +1068,13 @@
       if (remote.memos.length === 0 && local.memos.length > 0) {
         setStatus("初回ログイン: ローカル→クラウド移行できます", "warn", 2200);
       }
-      memos = remote.memos.length ? remote.memos : [{ id: uid(), text: "", updatedAt: now(), pinned: false, tags: [], notebookId: "default", history: [] }];
+      memos = remote.memos.length ? remote.memos : [{ id: uid(), text: "", updatedAt: now(), pinned: false, tags: [], notebookId: "default", history: [], reminderAt: null, reminderDone: false }];
       shareMeta = cloudShareStore.load(auth);
       trash = remote.trash || [];
       currentId = remote.currentId || memos[0].id;
       processQueue();
+      updateNotifyState();
+      checkDueReminders();
       select(currentId);
       render();
     };
@@ -899,7 +1086,7 @@
       clearTimeout(timer); saveCurrentMemo();
       auth = { loggedIn: false }; saveAuth(auth); updateTopbar();
       const local = localAdapter.loadState(); memos = local.memos; shareMeta = localShareStore.load(); trash = local.trash || []; currentId = local.currentId;
-      if (!memos.length) { const id = uid(); memos = [{ id, text: "", updatedAt: now(), pinned: false, tags: [], notebookId: "default", history: [] }]; currentId = id; localAdapter.saveState({ memos, currentId, trash }); }
+      if (!memos.length) { const id = uid(); memos = [{ id, text: "", updatedAt: now(), pinned: false, tags: [], notebookId: "default", history: [], reminderAt: null, reminderDone: false }]; currentId = id; localAdapter.saveState({ memos, currentId, trash }); }
       select(currentId); render();
     });
 
@@ -908,7 +1095,10 @@
 
     window.addEventListener("online", () => { processQueue(); setStatus("オンライン復帰: 同期再開", "ok", 1200); });
     window.addEventListener("offline", () => setSync("queued", "offline"));
-    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") { clearTimeout(timer); saveCurrentMemo(); } });
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") { clearTimeout(timer); saveCurrentMemo(); }
+      if (document.visibilityState === "visible") checkDueReminders();
+    });
     window.addEventListener("beforeunload", () => { clearTimeout(timer); saveCurrentMemo(); });
 
     const shareToken = new URLSearchParams(window.location.search).get("share");
@@ -921,7 +1111,9 @@
       select(currentId);
       render();
       updateCharCount();
+      updateNotifyState();
       processQueue();
+      checkDueReminders();
     }
   </script>
 </body>

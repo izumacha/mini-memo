@@ -136,7 +136,7 @@
       <div id="list" class="list"></div>
     </div>
     <div class="panel">
-      <div class="panelHeader"><div class="panelTitle">Editor</div><div class="row"><button id="share">共有</button><button id="viewHistory">履歴を見る</button><div id="shortcutHint" class="muted">自動保存: 300ms</div></div></div>
+      <div class="panelHeader"><div class="panelTitle">Editor</div><div class="row"><button id="share">共有</button><button id="viewHistory">履歴を見る</button><div id="shortcutHint" class="muted">Ctrl: N新規 S保存 F検索 Pピン E切替 ↑↓移動</div></div></div>
       <div class="notifyBox">
         <div class="row" style="justify-content:space-between;">
           <strong style="font-size:12px;">通知設定</strong>
@@ -1248,6 +1248,87 @@ ${(m.tags || []).join(" ")}`.toLowerCase();
 
     const updateCharCount = () => { const text = $editor.value; const tasks = countTasks(text); $charCount.textContent = `${text.length} 文字 ｜ ${text ? text.split("\n").length : 0} 行 ｜ 完了 ${tasks.done} / 未完了 ${tasks.open}`; };
     const updatePinButton = () => { const m = memos.find((x) => x.id === currentId); if (!m) return; $pin.textContent = m.pinned ? "ピン解除" : "ピン留め"; $pin.classList.toggle("isPinned", m.pinned); };
+
+    // Keyboard shortcuts
+    const isMac = /Mac|iPod|iPhone|iPad/.test(navigator.platform);
+    const modKey = (e) => isMac ? e.metaKey : e.ctrlKey;
+
+    const selectNextMemo = (direction) => {
+      const items = filtered();
+      if (items.length < 2) return;
+      const idx = items.findIndex((m) => m.id === currentId);
+      const next = direction === "up"
+        ? (idx <= 0 ? items.length - 1 : idx - 1)
+        : (idx >= items.length - 1 ? 0 : idx + 1);
+      select(items[next].id);
+    };
+
+    const isModalOpen = () => [$historyModal, $trashModal, $reminderModal, $shareModal].some((m) => m.classList.contains("isOpen"));
+    const closeAllModals = () => [$historyModal, $trashModal, $reminderModal, $shareModal].forEach((m) => closeModal(m));
+
+    const handleKeyboardShortcut = (e) => {
+      const activeEl = document.activeElement;
+      const inInput = activeEl && (activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA" || activeEl.tagName === "SELECT");
+
+      // Escape: close modal or clear search
+      if (e.key === "Escape") {
+        if (isModalOpen()) { closeAllModals(); e.preventDefault(); return; }
+        if ($search.value) { $search.value = ""; render(); e.preventDefault(); return; }
+        if (inInput) { activeEl.blur(); e.preventDefault(); return; }
+        return;
+      }
+
+      // Modifier key shortcuts
+      if (!modKey(e)) return;
+
+      // Ctrl+S: Save (always works, even in textarea)
+      if (e.key === "s") {
+        e.preventDefault();
+        clearTimeout(timer);
+        saveCurrentMemo();
+        setStatus("保存しました", "ok", 800);
+        return;
+      }
+
+      // Skip other shortcuts if in input (except editor)
+      if (inInput && activeEl !== $editor) return;
+
+      switch (e.key) {
+        case "n": // New memo
+          e.preventDefault();
+          $("new").click();
+          showToast("新規メモを作成しました");
+          break;
+        case "f": // Focus search
+          e.preventDefault();
+          $search.focus();
+          $search.select();
+          break;
+        case "p": // Toggle pin
+          e.preventDefault();
+          $pin.click();
+          break;
+        case "e": // Toggle edit/preview
+          e.preventDefault();
+          setEditorView(editorView === "edit" ? "preview" : "edit");
+          break;
+        case "d": // Duplicate
+          e.preventDefault();
+          $("dup").click();
+          showToast("メモを複製しました");
+          break;
+        case "ArrowUp": // Previous memo
+          e.preventDefault();
+          selectNextMemo("up");
+          break;
+        case "ArrowDown": // Next memo
+          e.preventDefault();
+          selectNextMemo("down");
+          break;
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyboardShortcut);
 
     window.addEventListener("online", () => { processQueue(); setStatus("オンライン復帰: 同期再開", "ok", 1200); });
     window.addEventListener("offline", () => setSync("queued", "offline"));

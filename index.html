@@ -36,6 +36,11 @@
     .item.active{border-color:rgba(124,92,255,.55);box-shadow:0 0 0 3px rgba(124,92,255,.18),0 10px 25px rgba(0,0,0,.28)}
     .title{font-size:13px;font-weight:750;margin-bottom:3px}.meta{font-size:11px;color:var(--muted2);font-family:"JetBrains Mono",monospace}
     .emptyState{border:1px dashed rgba(255,255,255,.16);border-radius:var(--radius);padding:16px;text-align:center;color:var(--muted2);font-size:12px;background:rgba(255,255,255,.04)}
+    .emptyActions{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:10px}
+    .filterSummary{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+    .filterChip{display:inline-flex;align-items:center;gap:6px;border:1px solid rgba(124,92,255,.35);background:rgba(124,92,255,.16);color:#EEE7FF;border-radius:999px;padding:4px 9px;font-size:11px}
+    .filterChip button{padding:0 4px;border:none;background:transparent;color:inherit;font-size:13px;line-height:1;min-height:auto}
+    .filterChip button:hover{background:transparent}
     textarea{width:100%;min-height:70vh;padding:14px;font-size:16px;line-height:1.6;border-radius:var(--radius2);border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.18);color:var(--text);outline:none;resize:vertical}
     .status{margin-left:auto;font-size:12px;padding:6px 10px;border-radius:999px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.05);color:var(--muted);display:inline-flex;align-items:center;gap:8px}
     .ok{color:#6EE7A8;border-color:rgba(110,231,168,.25);background:rgba(110,231,168,.08)} .warn{color:#FBBF24;border-color:rgba(251,191,36,.25);background:rgba(251,191,36,.08)} .err{color:#F87171;border-color:rgba(248,113,113,.25);background:rgba(248,113,113,.08)}
@@ -131,7 +136,9 @@
           <option value="week">今週</option>
         </select>
         <label class="muted" style="display:inline-flex;align-items:center;gap:6px;"><input id="pinnedOnly" type="checkbox" />ピンのみ</label>
+        <button id="clearFilters" type="button">絞り込み解除</button>
       </div>
+      <div id="filterSummary" class="filterSummary"></div>
       <div class="row" style="margin-top:8px;"><div class="muted">Tips: 先頭1行がタイトルになります</div></div>
       <div id="list" class="list"></div>
     </div>
@@ -408,6 +415,7 @@
     const $tabEdit = $("tabEdit"); const $tabPreview = $("tabPreview"); const $previewPane = $("previewPane");
     const $storageBadge = $("storageBadge"); const $syncStatus = $("syncStatus"); const $migrate = $("migrate");
     const $notebookFilter = $("notebookFilter"); const $tagFilter = $("tagFilter"); const $pinnedOnly = $("pinnedOnly"); const $timeFilter = $("timeFilter");
+    const $clearFilters = $("clearFilters"); const $filterSummary = $("filterSummary");
     const $historyModal = $("historyModal"); const $historyList = $("historyList"); const $historyPreview = $("historyPreview"); const $historyCurrent = $("historyCurrent");
     const $trashModal = $("trashModal"); const $trashList = $("trashList"); const $reminderModal = $("reminderModal"); const $reminderList = $("reminderList");
     const $shareModal = $("shareModal"); const $shareMeta = $("shareMeta"); const $piiWarning = $("piiWarning");
@@ -785,12 +793,70 @@ ${(m.tags || []).join(" ")}`.toLowerCase();
       return sortMemos(filteredItems);
     };
 
+    const getActiveFilters = () => {
+      const tags = [];
+      if (($search.value || "").trim()) tags.push({ key: "search", label: `検索: ${$search.value.trim()}` });
+      if ($notebookFilter.value && $notebookFilter.value !== "all") tags.push({ key: "notebook", label: `Notebook: ${$notebookFilter.value}` });
+      if (($tagFilter.value || "").trim()) tags.push({ key: "tag", label: `タグ: ${$tagFilter.value.trim()}` });
+      if ($timeFilter.value && $timeFilter.value !== "all") {
+        const map = { overdue: "期限切れ", today: "今日", week: "今週" };
+        tags.push({ key: "time", label: `期限: ${map[$timeFilter.value] || $timeFilter.value}` });
+      }
+      if ($pinnedOnly.checked) tags.push({ key: "pin", label: "ピンのみ" });
+      return tags;
+    };
+
+    const clearFilters = () => {
+      $search.value = "";
+      $notebookFilter.value = "all";
+      $tagFilter.value = "";
+      $timeFilter.value = "all";
+      $pinnedOnly.checked = false;
+    };
+
+    const removeFilter = (key) => {
+      if (key === "search") $search.value = "";
+      if (key === "notebook") $notebookFilter.value = "all";
+      if (key === "tag") $tagFilter.value = "";
+      if (key === "time") $timeFilter.value = "all";
+      if (key === "pin") $pinnedOnly.checked = false;
+      render();
+    };
+
+    const renderFilterSummary = () => {
+      const active = getActiveFilters();
+      $filterSummary.innerHTML = "";
+      if (!active.length) return;
+      for (const f of active) {
+        const chip = document.createElement("span");
+        chip.className = "filterChip";
+        chip.innerHTML = `<span>${escapeHtml(f.label)}</span><button type="button" aria-label="${escapeHtml(f.label)} を解除">×</button>`;
+        chip.querySelector("button").addEventListener("click", () => removeFilter(f.key));
+        $filterSummary.appendChild(chip);
+      }
+    };
+
     const render = () => {
       const items = filtered();
       refreshNotebookFilterOptions();
+      renderFilterSummary();
       $count.textContent = `表示: ${items.length} / 全: ${memos.length}`;
       $list.innerHTML = "";
-      if (items.length === 0) { const empty = document.createElement("div"); empty.className = "emptyState"; empty.textContent = "該当するメモがありません。"; $list.appendChild(empty); return; }
+      if (items.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "emptyState";
+        const hasActiveFilters = getActiveFilters().length > 0;
+        empty.innerHTML = hasActiveFilters
+          ? '<div>該当するメモがありません。</div><div class="muted" style="margin-top:6px;">絞り込み条件を解除して探し直せます。</div><div class="emptyActions"><button id="emptyClearFilters" type="button">絞り込み解除</button></div>'
+          : '<div>まだメモがありません。</div><div class="muted" style="margin-top:6px;">最初のメモを作成して始めましょう。</div><div class="emptyActions"><button id="emptyCreateMemo" type="button">新規メモを作成</button></div>';
+        $list.appendChild(empty);
+        if (hasActiveFilters) {
+          $("emptyClearFilters").addEventListener("click", () => { clearFilters(); render(); setStatus("絞り込みを解除しました", "ok"); });
+        } else {
+          $("emptyCreateMemo").addEventListener("click", () => $("new").click());
+        }
+        return;
+      }
       for (const m of items) {
         const div = document.createElement("div");
         div.className = `item${m.id === currentId ? " active" : ""}${m.pinned ? " pinned" : ""}`;
@@ -1041,10 +1107,18 @@ ${(m.tags || []).join(" ")}`.toLowerCase();
     $editor.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(saveCurrentMemo, 300); updateCharCount(); renderPreview(); });
     $editor.addEventListener("blur", () => { clearTimeout(timer); saveCurrentMemo(); });
     $search.addEventListener("input", render);
+    $search.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter") return;
+      const top = filtered()[0];
+      if (!top) return;
+      select(top.id);
+      e.preventDefault();
+    });
     $notebookFilter.addEventListener("change", render);
     $tagFilter.addEventListener("input", render);
     $pinnedOnly.addEventListener("change", render);
     $timeFilter.addEventListener("change", render);
+    $clearFilters.addEventListener("click", () => { clearFilters(); render(); setStatus("絞り込みを解除しました", "ok"); });
 
     $tabEdit.addEventListener("click", () => setEditorView("edit"));
     $tabPreview.addEventListener("click", () => setEditorView("preview"));
@@ -1246,7 +1320,13 @@ ${(m.tags || []).join(" ")}`.toLowerCase();
       select(currentId); render();
     });
 
-    const updateCharCount = () => { const text = $editor.value; const tasks = countTasks(text); $charCount.textContent = `${text.length} 文字 ｜ ${text ? text.split("\n").length : 0} 行 ｜ 完了 ${tasks.done} / 未完了 ${tasks.open}`; };
+    const updateCharCount = () => {
+      const text = $editor.value;
+      const tasks = countTasks(text);
+      const words = (text.trim().match(/\S+/g) || []).length;
+      const readMin = Math.max(1, Math.ceil(words / 400));
+      $charCount.textContent = `${text.length} 文字 ｜ ${text ? text.split("\n").length : 0} 行 ｜ 完了 ${tasks.done} / 未完了 ${tasks.open} ｜ 読了目安 ${readMin}分`;
+    };
     const updatePinButton = () => { const m = memos.find((x) => x.id === currentId); if (!m) return; $pin.textContent = m.pinned ? "ピン解除" : "ピン留め"; $pin.classList.toggle("isPinned", m.pinned); };
 
     // Keyboard shortcuts

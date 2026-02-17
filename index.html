@@ -3,93 +3,97 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>NEON MEMO（複数）</title>
+  <title>Mini Memo</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
   <style>
-    :root{--bg0:#070A12;--bg1:#0B1020;--panel:rgba(255,255,255,.06);--panel2:rgba(255,255,255,.08);--stroke:rgba(255,255,255,.10);--stroke2:rgba(255,255,255,.14);--text:rgba(255,255,255,.92);--muted:rgba(255,255,255,.62);--muted2:rgba(255,255,255,.48);--accent:#7C5CFF;--accent2:#2DE2E6;--shadow:0 10px 30px rgba(0,0,0,.35);--radius:16px;--radius2:22px}
+    :root{--bg0:#f4f6fb;--bg1:#eef2f8;--panel:#ffffff;--panel2:#f7f9fd;--stroke:#dbe3ef;--stroke2:#c9d4e3;--text:#1f2937;--muted:#4b5563;--muted2:#6b7280;--accent:#4f46e5;--accent2:#2563eb;--shadow:0 8px 22px rgba(15,23,42,.08);--radius:14px;--radius2:18px}
     *{box-sizing:border-box} html,body{height:100%}
-    body{margin:0;font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--text);background:radial-gradient(1200px 600px at 10% 10%, rgba(124,92,255,.22), transparent 50%),radial-gradient(900px 520px at 90% 30%, rgba(45,226,230,.16), transparent 55%),radial-gradient(800px 520px at 40% 90%, rgba(124,92,255,.12), transparent 60%),linear-gradient(180deg, var(--bg0), var(--bg1));padding:18px}
+    body{margin:0;font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--text);background:linear-gradient(180deg, var(--bg0), var(--bg1));padding:18px}
     .topbar{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin:2px 0 14px;flex-wrap:wrap}
-    h1{font-size:14px;font-weight:700;letter-spacing:.2px;margin:0;color:rgba(255,255,255,.86)}
+    h1{font-size:14px;font-weight:700;letter-spacing:.2px;margin:0;color:var(--text)}
     .subtitle{font-size:12px;color:var(--muted2);margin-top:4px;line-height:1.25}
     .topRight{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
-    .badge{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.10);backdrop-filter:blur(10px);box-shadow:0 8px 20px rgba(0,0,0,.25);font-size:12px;color:var(--muted);white-space:nowrap}
-    .dot{width:8px;height:8px;border-radius:999px;background:linear-gradient(135deg,var(--accent),var(--accent2));box-shadow:0 0 0 3px rgba(124,92,255,.18)}
+    .badge{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;background:var(--panel2);border:1px solid var(--stroke);font-size:12px;color:var(--muted);white-space:nowrap}
+    .dot{width:8px;height:8px;border-radius:999px;background:var(--accent);box-shadow:0 0 0 3px rgba(79,70,229,.15)}
     .authBox{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
     .authLabel{font-size:11px;color:var(--muted2)}
     .app{display:grid;grid-template-columns:380px 1fr;gap:14px;align-items:start}
     @media (max-width:860px){.app{grid-template-columns:1fr}body{padding:14px}}
-    .panel{background:var(--panel);border:1px solid var(--stroke);border-radius:var(--radius2);padding:12px;box-shadow:var(--shadow);backdrop-filter:blur(12px)}
+    .panel{background:var(--panel);border:1px solid var(--stroke);border-radius:var(--radius2);padding:12px;box-shadow:var(--shadow)}
     .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-    button{appearance:none;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:var(--text);padding:10px 11px;font-size:13px;border-radius:12px;cursor:pointer;transition:transform .06s ease, background .2s ease, border-color .2s ease, box-shadow .2s ease;user-select:none}
-    button:hover{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.18)} button:active{transform:translateY(1px)}
-    #new{background:linear-gradient(135deg, rgba(124,92,255,.95), rgba(45,226,230,.80));border-color:rgba(255,255,255,.14);color:#070A12;font-weight:800}
+    button{appearance:none;border:1px solid var(--stroke2);background:#fff;color:var(--text);padding:9px 11px;font-size:13px;border-radius:10px;cursor:pointer;transition:transform .06s ease, background .2s ease, border-color .2s ease, box-shadow .2s ease;user-select:none}
+    button:hover{background:#f8fafc;border-color:#a5b4c8} button:active{transform:translateY(1px)}
+    #new{background:linear-gradient(135deg, var(--accent), var(--accent2));border-color:transparent;color:#fff;font-weight:700}
     #new:hover{filter:brightness(1.03)}
-    #pin.isPinned{background:linear-gradient(135deg, rgba(124,92,255,.28), rgba(45,226,230,.22));border-color:rgba(124,92,255,.4);color:#EDE9FE;box-shadow:0 0 0 2px rgba(124,92,255,.12) inset}
-    input[type="search"]{width:100%;padding:11px 12px;border-radius:14px;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.18);color:var(--text);font-size:14px;outline:none}
+    #pin.isPinned{background:#eef2ff;border-color:#a5b4fc;color:#3730a3;box-shadow:none}
+    input[type="search"]{width:100%;padding:11px 12px;border-radius:12px;border:1px solid var(--stroke2);background:#fff;color:var(--text);font-size:14px;outline:none}
     .muted{color:var(--muted2);font-size:12px}.count{margin-left:auto;font-size:12px;color:var(--muted);font-family:"JetBrains Mono",monospace}
     .list{margin-top:10px;display:flex;flex-direction:column;gap:8px;max-height:62vh;overflow:auto;padding-right:4px}
-    .item{border:1px solid rgba(255,255,255,.10);border-radius:var(--radius);padding:10px;cursor:pointer;background:rgba(255,255,255,.04);position:relative}
+    .item{border:1px solid var(--stroke);border-radius:var(--radius);padding:10px;cursor:pointer;background:#fff;position:relative}
     .itemHeader{display:flex;align-items:center;justify-content:space-between;gap:8px}
-    .item.active{border-color:rgba(124,92,255,.55);box-shadow:0 0 0 3px rgba(124,92,255,.18),0 10px 25px rgba(0,0,0,.28)}
+    .item.active{border-color:#818cf8;box-shadow:0 0 0 3px rgba(99,102,241,.18)}
     .title{font-size:13px;font-weight:750;margin-bottom:3px}.meta{font-size:11px;color:var(--muted2);font-family:"JetBrains Mono",monospace}
-    .emptyState{border:1px dashed rgba(255,255,255,.16);border-radius:var(--radius);padding:16px;text-align:center;color:var(--muted2);font-size:12px;background:rgba(255,255,255,.04)}
+    .emptyState{border:1px dashed var(--stroke2);border-radius:var(--radius);padding:16px;text-align:center;color:var(--muted2);font-size:12px;background:#fff}
     .emptyActions{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:10px}
     .filterSummary{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
-    .filterChip{display:inline-flex;align-items:center;gap:6px;border:1px solid rgba(124,92,255,.35);background:rgba(124,92,255,.16);color:#EEE7FF;border-radius:999px;padding:4px 9px;font-size:11px}
+    .filterChip{display:inline-flex;align-items:center;gap:6px;border:1px solid #c7d2fe;background:#eef2ff;color:#3730a3;border-radius:999px;padding:4px 9px;font-size:11px}
     .filterChip button{padding:0 4px;border:none;background:transparent;color:inherit;font-size:13px;line-height:1;min-height:auto}
     .filterChip button:hover{background:transparent}
-    textarea{width:100%;min-height:70vh;padding:14px;font-size:16px;line-height:1.6;border-radius:var(--radius2);border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.18);color:var(--text);outline:none;resize:vertical}
-    .status{margin-left:auto;font-size:12px;padding:6px 10px;border-radius:999px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.05);color:var(--muted);display:inline-flex;align-items:center;gap:8px}
+    textarea{width:100%;min-height:70vh;padding:14px;font-size:16px;line-height:1.6;border-radius:var(--radius2);border:1px solid var(--stroke2);background:#fff;color:var(--text);outline:none;resize:vertical}
+    .status{margin-left:auto;font-size:12px;padding:6px 10px;border-radius:999px;border:1px solid var(--stroke);background:var(--panel2);color:var(--muted);display:inline-flex;align-items:center;gap:8px}
+    .sectionFold{margin-top:8px;border:1px solid var(--stroke);border-radius:12px;background:var(--panel2);padding:8px 10px}
+    .sectionFold summary{cursor:pointer;font-size:12px;color:var(--muted);font-weight:600;list-style:none}
+    .sectionFold summary::-webkit-details-marker{display:none}
+    .sectionFold[open] summary{margin-bottom:8px}
     .ok{color:#6EE7A8;border-color:rgba(110,231,168,.25);background:rgba(110,231,168,.08)} .warn{color:#FBBF24;border-color:rgba(251,191,36,.25);background:rgba(251,191,36,.08)} .err{color:#F87171;border-color:rgba(248,113,113,.25);background:rgba(248,113,113,.08)}
-    .syncPill{font-size:12px;padding:6px 10px;border-radius:999px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.05)}
+    .syncPill{font-size:12px;padding:6px 10px;border-radius:999px;border:1px solid var(--stroke);background:var(--panel2)}
     .charCount{margin-top:8px;font-size:12px;color:var(--muted2);font-family:"JetBrains Mono",monospace;text-align:right}
     .editorTabs{display:flex;gap:6px;margin-bottom:8px}
     .editorTab{padding:8px 12px;font-size:12px;border-radius:10px}
-    .editorTab.isActive{background:linear-gradient(135deg, rgba(124,92,255,.35), rgba(45,226,230,.26));border-color:rgba(124,92,255,.45);color:#fff}
-    .previewPane{display:none;min-height:70vh;padding:14px;border-radius:var(--radius2);border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.18);overflow:auto;line-height:1.65}
+    .editorTab.isActive{background:#e0e7ff;border-color:#a5b4fc;color:#312e81}
+    .previewPane{display:none;min-height:70vh;padding:14px;border-radius:var(--radius2);border:1px solid var(--stroke2);background:#fff;overflow:auto;line-height:1.65}
     .previewPane.isActive{display:block}
     #editor.isHidden{display:none}
     .previewPane h1,.previewPane h2,.previewPane h3{margin:1em 0 .45em}
     .previewPane ul,.previewPane ol{padding-left:22px}
-    .previewPane pre{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.10);border-radius:10px;padding:10px;overflow:auto}
+    .previewPane pre{background:#f8fafc;border:1px solid var(--stroke);border-radius:10px;padding:10px;overflow:auto}
     .previewPane code{font-family:"JetBrains Mono",monospace;font-size:13px}
     .previewPane a{color:#8dd3ff}
     .previewPane .task-item{list-style:none;display:flex;align-items:flex-start;gap:8px;margin:4px 0}
     .previewPane .task-item input{margin-top:3px}
     .snippet{margin-top:7px;font-size:12px;color:var(--muted);line-height:1.45}
-    mark{background:rgba(251,191,36,.3);color:#fff;padding:0 2px;border-radius:4px}
+    mark{background:#fde68a;color:#1f2937;padding:0 2px;border-radius:4px}
     .panelHeader{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
-    .panelTitle{font-size:12px;color:rgba(255,255,255,.78);font-weight:700}
-    .filterSelect,.dtInput{padding:9px 10px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.18);color:var(--text)}
-    .notifyBox{margin-bottom:10px;padding:10px;border-radius:12px;border:1px solid var(--stroke);background:rgba(255,255,255,.03)}
-    .notifyState{font-size:12px;padding:6px 10px;border-radius:999px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04)}
+    .panelTitle{font-size:12px;color:var(--muted);font-weight:700}
+    .filterSelect,.dtInput{padding:9px 10px;border-radius:12px;border:1px solid var(--stroke2);background:#fff;color:var(--text)}
+    .notifyBox{margin-bottom:10px;padding:10px;border-radius:12px;border:1px solid var(--stroke);background:#fff}
+    .notifyState{font-size:12px;padding:6px 10px;border-radius:999px;border:1px solid var(--stroke);background:var(--panel2)}
     .notifyState.bad{color:#FBBF24;border-color:rgba(251,191,36,.35);background:rgba(251,191,36,.12)}
     .reminderBadge{font-size:10px;color:#FDE68A;border:1px solid rgba(251,191,36,.38);border-radius:999px;padding:2px 6px}
     .reminderBadge.done{color:#86EFAC;border-color:rgba(134,239,172,.38)}
     .overdue{color:#FCA5A5}
-    .shareMeta{margin-top:8px;padding:10px;border-radius:12px;border:1px solid var(--stroke);background:rgba(255,255,255,.03);font-size:12px;color:var(--muted)}
-    .shareUrl{font-family:"JetBrains Mono",monospace;word-break:break-all;color:rgba(255,255,255,.8)}
+    .shareMeta{margin-top:8px;padding:10px;border-radius:12px;border:1px solid var(--stroke);background:var(--panel2);font-size:12px;color:var(--muted)}
+    .shareUrl{font-family:"JetBrains Mono",monospace;word-break:break-all;color:#1d4ed8}
     .readonlyWrap{max-width:920px;margin:0 auto;padding:20px}
     .readonlyTitle{font-size:28px;margin:0 0 6px}
     .readonlyMeta{font-size:12px;color:var(--muted2);margin-bottom:16px}
-    .readonlyBody{white-space:pre-wrap;line-height:1.7;border:1px solid var(--stroke);background:rgba(255,255,255,.03);padding:16px;border-radius:16px}
+    .readonlyBody{white-space:pre-wrap;line-height:1.7;border:1px solid var(--stroke);background:#fff;padding:16px;border-radius:16px}
     .warningList{margin:8px 0 0;padding-left:18px;color:#FBBF24}
-    .toast{position:fixed;right:18px;bottom:18px;padding:10px 14px;border-radius:12px;background:rgba(7,10,18,.95);border:1px solid var(--stroke2);box-shadow:var(--shadow);font-size:12px;opacity:0;transform:translateY(8px);pointer-events:none;transition:.2s;z-index:50}
+    .toast{position:fixed;right:18px;bottom:18px;padding:10px 14px;border-radius:12px;background:#111827;color:#f9fafb;border:1px solid #1f2937;box-shadow:var(--shadow);font-size:12px;opacity:0;transform:translateY(8px);pointer-events:none;transition:.2s;z-index:50}
     .toast.show{opacity:1;transform:translateY(0)}
-    .modal{position:fixed;inset:0;background:rgba(7,10,18,.78);display:none;align-items:center;justify-content:center;padding:18px;z-index:40}
+    .modal{position:fixed;inset:0;background:rgba(17,24,39,.45);display:none;align-items:center;justify-content:center;padding:18px;z-index:40}
     .modal.isOpen{display:flex}
-    .modalCard{width:min(980px,96vw);max-height:86vh;overflow:auto;background:rgba(15,22,42,.95);border:1px solid var(--stroke2);border-radius:18px;padding:14px;box-shadow:var(--shadow)}
+    .modalCard{width:min(980px,96vw);max-height:86vh;overflow:auto;background:#fff;border:1px solid var(--stroke2);border-radius:18px;padding:14px;box-shadow:var(--shadow)}
     .modalHead{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px}
     .historyLayout{display:grid;grid-template-columns:280px 1fr;gap:10px}
     .historyList{display:flex;flex-direction:column;gap:6px;max-height:60vh;overflow:auto}
-    .historyItem{border:1px solid var(--stroke);border-radius:10px;padding:8px;font-size:12px;cursor:pointer;background:rgba(255,255,255,.03)}
-    .historyItem.active{border-color:rgba(124,92,255,.65);background:rgba(124,92,255,.18)}
+    .historyItem{border:1px solid var(--stroke);border-radius:10px;padding:8px;font-size:12px;cursor:pointer;background:#fff}
+    .historyItem.active{border-color:#818cf8;background:#eef2ff}
     .compareCols{display:grid;grid-template-columns:1fr 1fr;gap:8px}
     .compareCols textarea{min-height:48vh;font-size:13px}
-    .snackbar{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);display:none;align-items:center;gap:12px;padding:10px 12px;border-radius:12px;background:rgba(15,22,42,.96);border:1px solid var(--stroke2);z-index:60}
+    .snackbar{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);display:none;align-items:center;gap:12px;padding:10px 12px;border-radius:12px;background:#111827;color:#f9fafb;border:1px solid #1f2937;z-index:60}
     .snackbar.show{display:flex}
     .trashMeta{font-size:11px;color:var(--muted2)}
     @media (max-width:860px){.historyLayout,.compareCols{grid-template-columns:1fr}}
@@ -98,8 +102,8 @@
 <body>
   <div class="topbar">
     <div>
-      <h1>NEON MEMO</h1>
-      <div class="subtitle">複数 / 自動保存 / JSON & Markdown / ストレージアダプタ対応</div>
+      <h1>Mini Memo</h1>
+      <div class="subtitle">よく使う操作を前に、その他の機能は折りたたみでスッキリ表示</div>
     </div>
     <div class="topRight">
       <div id="storageBadge" class="badge" title="保存先"><span class="dot"></span><span>localStorage</span></div>
@@ -118,32 +122,41 @@
     <div class="panel">
       <div class="panelHeader"><div class="panelTitle">Memos</div><div id="count" class="count"></div></div>
       <div class="row" style="margin-bottom:10px;">
-        <button id="new">＋ 新規</button><button id="dup">複製</button><button id="del">削除</button><button id="pin">ピン留め</button><button id="openTrash">ゴミ箱</button>
-        <button id="exportJson">JSON</button><button id="exportMd">MD</button><button id="import">インポート</button><button id="migrate">ローカル→クラウド移行</button>
+        <button id="new">＋ 新規</button><button id="del">削除</button><button id="pin">ピン留め</button>
         <input id="importFile" type="file" accept="application/json" hidden /><span id="status" class="status"></span>
       </div>
       <input id="search" type="search" placeholder="検索（タイトル/本文/タグ）" />
-      <div class="row" style="margin-top:8px;">
-        <label class="muted" for="notebookFilter">Notebook</label>
-        <select id="notebookFilter" class="filterSelect">
-          <option value="all">すべて</option>
-        </select>
-        <input id="tagFilter" type="search" placeholder="タグフィルタ（例: work）" style="max-width:180px;" />
-        <select id="timeFilter" class="filterSelect">
-          <option value="all">期限: すべて</option>
-          <option value="overdue">期限切れ</option>
-          <option value="today">今日</option>
-          <option value="week">今週</option>
-        </select>
-        <label class="muted" style="display:inline-flex;align-items:center;gap:6px;"><input id="pinnedOnly" type="checkbox" />ピンのみ</label>
-        <button id="clearFilters" type="button">絞り込み解除</button>
-      </div>
+      <details class="sectionFold">
+        <summary>詳細絞り込みと管理機能</summary>
+        <div class="row" style="margin-top:8px;">
+          <label class="muted" for="notebookFilter">Notebook</label>
+          <select id="notebookFilter" class="filterSelect">
+            <option value="all">すべて</option>
+          </select>
+          <input id="tagFilter" type="search" placeholder="タグフィルタ（例: work）" style="max-width:180px;" />
+          <select id="timeFilter" class="filterSelect">
+            <option value="all">期限: すべて</option>
+            <option value="overdue">期限切れ</option>
+            <option value="today">今日</option>
+            <option value="week">今週</option>
+          </select>
+          <label class="muted" style="display:inline-flex;align-items:center;gap:6px;"><input id="pinnedOnly" type="checkbox" />ピンのみ</label>
+          <button id="clearFilters" type="button">絞り込み解除</button>
+        </div>
+        <div class="row" style="margin-top:8px;">
+          <button id="dup">複製</button><button id="openTrash">ゴミ箱</button>
+          <button id="exportJson">JSON</button><button id="exportMd">MD</button><button id="import">インポート</button><button id="migrate">ローカル→クラウド移行</button>
+        </div>
+      </details>
       <div id="filterSummary" class="filterSummary"></div>
       <div class="row" style="margin-top:8px;"><div class="muted">Tips: 先頭1行がタイトルになります</div></div>
       <div id="list" class="list"></div>
     </div>
     <div class="panel">
-      <div class="panelHeader"><div class="panelTitle">Editor</div><div class="row"><button id="share">共有</button><button id="viewHistory">履歴を見る</button><div id="shortcutHint" class="muted">Ctrl: N新規 S保存 F検索 Pピン E切替 ↑↓移動</div></div></div>
+      <div class="panelHeader"><div class="panelTitle">Editor</div><div id="shortcutHint" class="muted">Ctrl: N新規 S保存 F検索 Pピン E切替 ↑↓移動</div></div>
+      <details class="sectionFold" style="margin-bottom:10px;">
+        <summary>共有・履歴・通知</summary>
+        <div class="row" style="margin-top:8px;"><button id="share">共有</button><button id="viewHistory">履歴を見る</button></div>
       <div class="notifyBox">
         <div class="row" style="justify-content:space-between;">
           <strong style="font-size:12px;">通知設定</strong>
@@ -157,6 +170,7 @@
         </div>
         <div id="notifyHint" class="muted" style="margin-top:8px;"></div>
       </div>
+      </details>
       <div class="editorTabs" role="tablist" aria-label="エディタ表示切替">
         <button id="tabEdit" class="editorTab isActive" role="tab" aria-selected="true">編集</button>
         <button id="tabPreview" class="editorTab" role="tab" aria-selected="false">プレビュー</button>
